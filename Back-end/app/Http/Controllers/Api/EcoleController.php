@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use App\Mail\SchoolActivatedMail;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
 
 class EcoleController extends Controller {
 
@@ -333,7 +334,7 @@ class EcoleController extends Controller {
     public function demandesEnAttente(Request $request) {
         $user = $request->user();
 
-        \Log::info('DemandesEnAttente - User ID: ' . $user->id . ', Role: ' . $user->role);
+        Log::info('DemandesEnAttente - User ID: ' . $user->id . ', Role: ' . $user->role);
 
         $membre = MembreEcole::where('user_id', $user->id)
             ->where('role', 'admin')
@@ -341,18 +342,18 @@ class EcoleController extends Controller {
             ->first();
 
         if (!$membre) {
-            \Log::info('DemandesEnAttente - No active admin membership found for user ' . $user->id);
+            Log::info('DemandesEnAttente - No active admin membership found for user ' . $user->id);
             return response()->json(['message' => 'Accès refusé'], 403);
         }
 
-        \Log::info('DemandesEnAttente - Found admin membership for ecole_id: ' . $membre->ecole_id);
+        Log::info('DemandesEnAttente - Found admin membership for ecole_id: ' . $membre->ecole_id);
 
         $demandes = MembreEcole::with('user')
             ->where('ecole_id', $membre->ecole_id)
             ->where('statut', 'en_attente')
             ->get();
 
-        \Log::info('DemandesEnAttente - Found ' . $demandes->count() . ' pending requests');
+        Log::info('DemandesEnAttente - Found ' . $demandes->count() . ' pending requests');
 
         return response()->json($demandes);
     }

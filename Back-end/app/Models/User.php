@@ -8,10 +8,14 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;        
 use Laravel\Sanctum\HasApiTokens;  // ← AJOUTE CETTE LIGNE
 
+/**
+ * Modèle User pour l'authentification et les données utilisateur.
+ *
+ * @property string $first_name
+ * @property string $last_name
+ */
 class User extends Authenticatable
 {
-
-
     /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasFactory, HasApiTokens, Notifiable;
 
@@ -84,4 +88,23 @@ class User extends Authenticatable
             'password' => 'hashed',
         ];
     }
+
+    // Les cours assignés à cet enseignant
+    public function coursEnseignes()
+    {
+        return $this->hasMany(Cours::class, 'enseignant_id');
+    }
+
+    // Les classes auxquelles appartient cet étudiant
+    public function classes()
+    {
+        return $this->belongsToMany(Classe::class, 'etudiant_classe', 'user_id', 'classe_id')
+                    ->withPivot('annee_academique')
+                    ->withTimestamps();
+    }
+
+    // Helpers pour vérifier le rôle
+    public function isAdmin(): bool { return $this->role === 'admin'; }
+    public function isEnseignant(): bool { return $this->role === 'enseignant'; }
+    public function isEtudiant(): bool { return $this->role === 'etudiant'; }
 }
