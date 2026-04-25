@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:dio/dio.dart';
 import 'package:appliformulaire/services/api_service.dart';
 import 'package:appliformulaire/models/session_utilisateur.dart';
@@ -9,7 +10,6 @@ import 'package:appliformulaire/super_admin_page.dart';
 import 'package:appliformulaire/ecoles_selection_page.dart';
 import 'package:appliformulaire/rejoindre_ecole_page.dart';
 import 'package:appliformulaire/admin_dashboard_page.dart';
-import 'package:appliformulaire/dashboard_screen.dart';
 
 class AppColors {
   static const primary = Color(0xFF1565C0);
@@ -28,6 +28,17 @@ void main() {
     MaterialApp(
       home: const Connexion(),
       debugShowCheckedModeBanner: false,
+      // important pour les date pickers en francais
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('fr', 'FR'),
+        Locale('en', 'US'),
+      ],
+      locale: const Locale('fr', 'FR'),
       routes: {
         '/ecoles-selection': (context) => const EcolesSelectionPage(),
         '/rejoindre-ecole': (context) => const RejoindreEcolePage(),
@@ -433,7 +444,9 @@ class _OtpResetPageState extends State<OtpResetPage> {
               ElevatedButton(
                 onPressed: () {
                   setState(() => _errorMessage = "");
-                  for (var c in _controllers) c.clear();
+                  for (var c in _controllers) {
+                    c.clear();
+                  }
                   FocusScope.of(context).requestFocus(FocusNode());
                 },
                 child: const Text("Réessayer"),
@@ -508,8 +521,9 @@ class _NewPasswordPageState extends State<NewPasswordPage> {
     try {
       await ApiService.resetPassword(
         email: widget.email,
-        otpCode: widget.otpCode,
+        code: widget.otpCode,
         password: _passController.text,
+        passwordConfirmation: _confirmPassController.text,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -690,16 +704,17 @@ class _InscriptionState extends State<Inscription> {
           ? 'F'
           : 'other';
 
-      await ApiService.register(
-        firstName: _firstNameController.text.trim(),
-        lastName: _lastNameController.text.trim(),
-        email: _emailController.text.trim(),
-        password: _passController.text,
-        dateOfBirth: _dateNaissanceController.text,
-        gender: sexeValue,
-        nationality: _nationaliteSelectionnee ?? '',
-        phone: _telephoneController.text.trim(),
-      );
+      await ApiService.register({
+        'first_name': _firstNameController.text.trim(),
+        'last_name': _lastNameController.text.trim(),
+        'email': _emailController.text.trim(),
+        'password': _passController.text,
+        'password_confirmation': _confirmPassController.text,
+        'date_of_birth': _dateNaissanceController.text,
+        'gender': sexeValue,
+        'nationality': _nationaliteSelectionnee ?? '',
+        'phone': _telephoneController.text.trim(),
+      });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -813,7 +828,7 @@ class _InscriptionState extends State<Inscription> {
 
               // Sexe
               DropdownButtonFormField<String>(
-                value: _sexeSelectionne,
+                initialValue: _sexeSelectionne,
                 decoration: InputDecoration(
                   labelText: "Sexe *",
                   filled: true,
@@ -853,7 +868,7 @@ class _InscriptionState extends State<Inscription> {
 
               // Nationalité
               DropdownButtonFormField<String>(
-                value: _nationaliteSelectionnee,
+                initialValue: _nationaliteSelectionnee,
                 decoration: InputDecoration(
                   labelText: "Nationalité *",
                   filled: true,
@@ -1123,10 +1138,12 @@ class _ValidationInscriptionState extends State<ValidationInscription> {
                     keyboardType: TextInputType.number,
                     maxLength: 1,
                     onChanged: (v) {
-                      if (v.isNotEmpty && index < 5)
+                      if (v.isNotEmpty && index < 5) {
                         FocusScope.of(context).nextFocus();
-                      if (v.isEmpty && index > 0)
+                      }
+                      if (v.isEmpty && index > 0) {
                         FocusScope.of(context).previousFocus();
+                      }
                     },
                     decoration: const InputDecoration(
                       counterText: "",
@@ -1149,7 +1166,9 @@ class _ValidationInscriptionState extends State<ValidationInscription> {
               ElevatedButton(
                 onPressed: () {
                   setState(() => _errorMessage = "");
-                  for (var c in _otpControllers) c.clear();
+                  for (var c in _otpControllers) {
+                    c.clear();
+                  }
                   FocusScope.of(context).requestFocus(FocusNode());
                 },
                 child: const Text("Réessayer"),

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:appliformulaire/main.dart';
 import 'package:appliformulaire/models/session_utilisateur.dart';
 import 'package:appliformulaire/services/api_service.dart';
@@ -57,45 +57,46 @@ class _CreerEcolePageState extends State<CreerEcolePage> {
 
     setState(() => _isLoading = true);
     await Future.delayed(const Duration(seconds: 1));
+    if (!mounted) return;
 
-    if (mounted) {
-      setState(() => _isLoading = false);
+    setState(() => _isLoading = false);
 
-      try {
-        await ApiService.creerEcole({
-          'nom_officiel': _nomOfficielController.text.trim(),
-          'sigle': _sigleController.text.trim(),
-          'site_web': _siteWebController.text.trim(),
-          'adresse': _adresseController.text.trim(),
-          'ville': _villeController.text.trim(),
-          'code_postal': _codePostalController.text.trim(),
-          'pays': _paysController.text.trim(),
-          'email_principal': _emailPrincipalController.text.trim(),
-          'email_secondaire': _emailSecondaireController.text.trim(),
-          'tel_fixe': _telFixeController.text.trim(),
-          'tel_mobile': _telMobileController.text.trim(),
-          'nom_responsable': _nomResponsableController.text.trim(),
-          'titre_responsable': _titreResponsableController.text.trim(),
-          'numero_rne': _numeroRneController.text.trim(),
-          'type_etablissement': _typeEtablissement ?? 'Public',
-          'description_courte': _descriptionCourteController.text.trim(),
-          'description_complete': _descriptionCompleteController.text.trim(),
-          'max_etudiants': _maxEtudiantsController.text.trim(),
-          'max_enseignants': _maxEnseignantsController.text.trim(),
-        });
+    try {
+      await ApiService.creerEcole({
+        'nom_officiel': _nomOfficielController.text.trim(),
+        'sigle': _sigleController.text.trim(),
+        'site_web': _siteWebController.text.trim(),
+        'adresse': _adresseController.text.trim(),
+        'ville': _villeController.text.trim(),
+        'code_postal': _codePostalController.text.trim(),
+        'pays': _paysController.text.trim(),
+        'email_principal': _emailPrincipalController.text.trim(),
+        'email_secondaire': _emailSecondaireController.text.trim(),
+        'tel_fixe': _telFixeController.text.trim(),
+        'tel_mobile': _telMobileController.text.trim(),
+        'nom_responsable': _nomResponsableController.text.trim(),
+        'titre_responsable': _titreResponsableController.text.trim(),
+        'numero_rne': _numeroRneController.text.trim(),
+        'type_etablissement': _typeEtablissement ?? 'Public',
+        'description_courte': _descriptionCourteController.text.trim(),
+        'description_complete': _descriptionCompleteController.text.trim(),
+        'max_etudiants': _maxEtudiantsController.text.trim(),
+        'max_enseignants': _maxEnseignantsController.text.trim(),
+      });
 
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const DemandeEnCoursPage()),
-        );
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceAll('Exception: ', '')),
-            backgroundColor: AppColors.red,
-          ),
-        );
-      }
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const DemandeEnCoursPage()),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceAll('Exception: ', '')),
+          backgroundColor: AppColors.red,
+        ),
+      );
     }
   }
 
@@ -214,7 +215,7 @@ class _CreerEcolePageState extends State<CreerEcolePage> {
               _champ("Numéro RNE", _numeroRneController),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: _typeEtablissement,
+                initialValue: _typeEtablissement,
                 decoration: _deco("Type d'établissement *"),
                 hint: const Text("Choisissez le type"),
                 items: _typesEtablissement
@@ -339,11 +340,11 @@ class _CreerEcolePageState extends State<CreerEcolePage> {
       fillColor: Colors.white,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
-        borderSide: BorderSide(color: Colors.grey.withOpacity(0.3)),
+        borderSide: BorderSide(color: Colors.grey.withValues(alpha: 0.3)),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
-        borderSide: BorderSide(color: Colors.grey.withOpacity(0.3)),
+        borderSide: BorderSide(color: Colors.grey.withValues(alpha: 0.3)),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),

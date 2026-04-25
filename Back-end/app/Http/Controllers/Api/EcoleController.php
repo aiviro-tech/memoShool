@@ -178,6 +178,7 @@ class EcoleController extends Controller {
                 'statut' => $m->statut,
                 'joined_at' => $m->joined_at,
                 'premiere_connexion' => $m->joined_at,
+                'is_owner' => $m->ecole->admin_id === $user->id, // créateur de l'école
             ]);
 
         // Demandes en attente
@@ -385,5 +386,32 @@ class EcoleController extends Controller {
         ]);
 
         return response()->json(['message' => 'Demande rejetée.']);
+    }
+
+    // Liste des membres de l'école (filtre par rôle, etc)
+    public function membres(Request $request, $ecole_id) {
+        $query = MembreEcole::with('user')->where('ecole_id', $ecole_id);
+        
+        if ($request->filled('role')) {
+            $query->where('role', $request->role);
+        }
+        if ($request->filled('statut')) {
+            $query->where('statut', $request->statut);
+        }
+        
+        $membres = $query->get()->map(function ($m) {
+            $u = $m->user;
+            return [
+                'id' => $u->id,
+                'first_name' => $u->first_name,
+                'last_name' => $u->last_name,
+                'full_name' => $u->full_name,
+                'email' => $u->email,
+                'role' => $m->role,
+                'statut' => $m->statut,
+            ];
+        });
+        
+        return response()->json(['success' => true, 'data' => $membres]);
     }
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -17,6 +18,9 @@ class AdminDashboardPage extends StatefulWidget {
 class _AdminDashboardPageState extends State<AdminDashboardPage>
     with WidgetsBindingObserver {
   late Future<Map<String, dynamic>> _demandeFuture;
+  Timer? _autoRefreshTimer;
+  int _dernierCompteDemandes = 0;
+  bool _nouvellesDemandes = false;
 
   @override
   void initState() {
@@ -27,67 +31,110 @@ class _AdminDashboardPageState extends State<AdminDashboardPage>
       ApiService.setToken(session.token);
     }
     _demandeFuture = _loadDemandes();
+    _demarrerAutoRefresh();
   }
 
   @override
   void dispose() {
+    _autoRefreshTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Rafraîchir les demandes quand l'app revient au premier plan
     if (state == AppLifecycleState.resumed && mounted) {
-      setState(() {
-        _demandeFuture = _loadDemandes();
-      });
+      _rafraichir();
+      _demarrerAutoRefresh();
+    } else if (state == AppLifecycleState.paused) {
+      _autoRefreshTimer?.cancel();
+    }
+  }
+
+  void _demarrerAutoRefresh() {
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted) _rafraichirSilencieux();
+    });
+  }
+
+  void _rafraichir() {
+    setState(() {
+      _demandeFuture = _loadDemandes();
+      _nouvellesDemandes = false;
+    });
+  }
+
+  /// Rafraîchissement silencieux : ne reconstruit que si de nouvelles demandes arrivent
+  Future<void> _rafraichirSilencieux() async {
+    try {
+      final data = await ApiService.demandesEnAttente();
+      final count = data.length;
+      if (count != _dernierCompteDemandes && mounted) {
+        setState(() {
+          _nouvellesDemandes = count > _dernierCompteDemandes;
+          _dernierCompteDemandes = count;
+          _demandeFuture = Future.value({'demandes': data});
+        });
+      }
+    } catch (_) {
+      // Ignorer les erreurs silencieuses
     }
   }
 
   Future<Map<String, dynamic>> _loadDemandes() async {
     final demandes = await ApiService.demandesEnAttente();
+    _dernierCompteDemandes = demandes.length;
     return {'demandes': demandes};
   }
 
   Future<void> _accepterDemande(int demandeId) async {
     try {
       await ApiService.accepterDemande(demandeId);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("Demande acceptée avec succès"),
+          content: Text("✓ Demande acceptée avec succès"),
           backgroundColor: AppColors.green,
         ),
       );
-      setState(() {
-        _demandeFuture = _loadDemandes();
-      });
+      _rafraichir();
     } catch (e) {
       _showErrorSnackbar(e);
     }
   }
 
   Future<void> _rejeterDemande(int demandeId) async {
+    final motifController = TextEditingController();
     final motif = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         title: const Text("Motif du rejet"),
         content: TextField(
+          controller: motifController,
           decoration: const InputDecoration(
             hintText: "Expliquez pourquoi vous rejetez cette demande",
             border: OutlineInputBorder(),
           ),
-          onChanged: (value) {},
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text("Annuler"),
           ),
-          TextButton(
-            onPressed: () =>
-                Navigator.pop(context, "Rejeté par administrateur"),
-            child: const Text("Confirmer"),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.red,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(
+              context,
+              motifController.text.isNotEmpty
+                  ? motifController.text
+                  : "Rejeté par l'administrateur",
+            ),
+            child: const Text("Confirmer le rejet"),
           ),
         ],
       ),
@@ -102,9 +149,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage>
             backgroundColor: AppColors.orange,
           ),
         );
-        setState(() {
-          _demandeFuture = _loadDemandes();
-        });
+        _rafraichir();
       } catch (e) {
         _showErrorSnackbar(e);
       }
@@ -115,36 +160,45 @@ class _AdminDashboardPageState extends State<AdminDashboardPage>
     try {
       final result = await ApiService.regenererCode(codeId);
       final newCode = result['nouveau'] ?? 'ERREUR';
+      if (!mounted) return;
 
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text("Code régénéré"),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text("Ancien code: $ancienCode"),
-                const SizedBox(height: 16),
-                Text(
-                  "Nouveau code: $newCode",
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          title: const Text("Code régénéré"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text("Ancien code: $ancienCode",
+                  style: const TextStyle(color: AppColors.textSub)),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.primaryLight,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  newCode,
                   style: const TextStyle(
-                    fontSize: 18,
+                    fontSize: 20,
                     fontWeight: FontWeight.bold,
                     color: AppColors.primary,
+                    letterSpacing: 2,
                   ),
                 ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("Fermer"),
               ),
             ],
           ),
-        );
-      }
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Fermer"),
+            ),
+          ],
+        ),
+      );
     } catch (e) {
       _showErrorSnackbar(e);
     }
@@ -172,10 +226,35 @@ class _AdminDashboardPageState extends State<AdminDashboardPage>
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         actions: [
+          // Badge de nouvelles demandes
+          if (_nouvellesDemandes)
+            IconButton(
+              icon: const Stack(
+                children: [
+                  Icon(Icons.notifications_active, color: Colors.white),
+                  Positioned(
+                    right: 0,
+                    child: CircleAvatar(
+                      radius: 5,
+                      backgroundColor: Colors.red,
+                    ),
+                  ),
+                ],
+              ),
+              tooltip: "Nouvelles demandes reçues !",
+              onPressed: _rafraichir,
+            ),
+          // Bouton rafraîchir manuel
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: "Actualiser",
+            onPressed: _rafraichir,
+          ),
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: "Se déconnecter",
             onPressed: () async {
+              _autoRefreshTimer?.cancel();
               try {
                 await ApiService.logout();
                 if (mounted) {
@@ -186,6 +265,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage>
                   );
                 }
               } catch (e) {
+                if (!mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(e.toString()),
@@ -198,25 +278,92 @@ class _AdminDashboardPageState extends State<AdminDashboardPage>
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: () async {
-          setState(() {
-            _demandeFuture = _loadDemandes();
-          });
-          await _demandeFuture;
-        },
+        onRefresh: () async => _rafraichir(),
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                "DEMANDES EN ATTENTE DE VALIDATION",
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textMain,
+              // Bandeau info auto-refresh
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: AppColors.primaryLight,
+                  borderRadius: BorderRadius.circular(8),
                 ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.sync, color: AppColors.primary, size: 16),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        "Actualisation automatique toutes les 15 secondes",
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ),
+                    if (_nouvellesDemandes)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppColors.red,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Text(
+                          "Nouvelles demandes !",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+
+
+              Row(
+                children: [
+                  const Text(
+                    "DEMANDES EN ATTENTE",
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textMain,
+                    ),
+                  ),
+                  const Spacer(),
+                  FutureBuilder<Map<String, dynamic>>(
+                    future: _demandeFuture,
+                    builder: (_, snap) {
+                      final count =
+                          (snap.data?['demandes'] as List?)?.length ?? 0;
+                      if (count == 0) return const SizedBox();
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppColors.orange,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '$count en attente',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
               ),
               const SizedBox(height: 16),
               FutureBuilder<Map<String, dynamic>>(
@@ -226,14 +373,26 @@ class _AdminDashboardPageState extends State<AdminDashboardPage>
                     return const Center(child: CircularProgressIndicator());
                   }
                   if (snapshot.hasError) {
-                    return Center(child: Text("Erreur: ${snapshot.error}"));
+                    return Center(
+                      child: Column(
+                        children: [
+                          Text("Erreur: ${snapshot.error}"),
+                          const SizedBox(height: 8),
+                          ElevatedButton(
+                            onPressed: _rafraichir,
+                            child: const Text("Réessayer"),
+                          ),
+                        ],
+                      ),
+                    );
                   }
-                  final demandes = List.from(snapshot.data?['demandes'] ?? []);
+                  final demandes =
+                      List.from(snapshot.data?['demandes'] ?? []);
                   if (demandes.isEmpty) {
                     return Container(
                       padding: const EdgeInsets.all(20),
                       decoration: BoxDecoration(
-                        color: Colors.green.withOpacity(0.1),
+                        color: Colors.green.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: const Center(
@@ -246,36 +405,23 @@ class _AdminDashboardPageState extends State<AdminDashboardPage>
                   }
                   return Column(
                     children: demandes.map((demande) {
+                      final id = demande['id'] is int
+                          ? demande['id'] as int
+                          : int.tryParse(demande['id']?.toString() ?? '') ?? 0;
+                      final user =
+                          demande['user'] as Map<String, dynamic>? ?? {};
+                      final nom =
+                          '${user['first_name'] ?? ''} ${user['last_name'] ?? ''}'
+                              .trim();
                       return _CarteDemande(
-                        id: demande['id'] is int
-                            ? demande['id'] as int
-                            : int.tryParse(demande['id']?.toString() ?? '') ??
-                                  0,
-                        nom: (() {
-                          final user = demande['user'] as Map<String, dynamic>?;
-                          final firstName =
-                              user?['first_name']?.toString() ?? '';
-                          final lastName = user?['last_name']?.toString() ?? '';
-                          return ('$firstName $lastName').trim();
-                        })(),
+                        id: id,
+                        nom: nom,
                         role: demande['role']?.toString() ?? '',
-                        email:
-                            (demande['user'] as Map<String, dynamic>?)?['email']
-                                ?.toString() ??
-                            '',
-                        dateCreation: demande['created_at']?.toString() ?? '',
-                        onAccepter: () => _accepterDemande(
-                          demande['id'] is int
-                              ? demande['id'] as int
-                              : int.tryParse(demande['id']?.toString() ?? '') ??
-                                    0,
-                        ),
-                        onRejeter: () => _rejeterDemande(
-                          demande['id'] is int
-                              ? demande['id'] as int
-                              : int.tryParse(demande['id']?.toString() ?? '') ??
-                                    0,
-                        ),
+                        email: user['email']?.toString() ?? '',
+                        dateCreation:
+                            demande['created_at']?.toString() ?? '',
+                        onAccepter: () => _accepterDemande(id),
+                        onRejeter: () => _rejeterDemande(id),
                       );
                     }).toList(),
                   );
@@ -337,7 +483,7 @@ class _CarteDemande extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.orange.withOpacity(0.3)),
+        border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -390,7 +536,7 @@ class _CarteDemande extends StatelessWidget {
                     foregroundColor: AppColors.red,
                     side: const BorderSide(color: AppColors.red),
                   ),
-                  child: const Text("✗ Rejeter"),
+                  child: const Text("✕ Rejeter"),
                 ),
               ),
             ],
@@ -456,7 +602,7 @@ class _CodesListWidgetState extends State<_CodesListWidget> {
           return Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: Colors.orange.withOpacity(0.1),
+              color: Colors.orange.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Column(
@@ -506,14 +652,16 @@ class _CodesListWidgetState extends State<_CodesListWidget> {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppColors.primary.withOpacity(0.2)),
+                  border: Border.all(
+                    color: AppColors.primary.withValues(alpha: 0.2),
+                  ),
                 ),
                 child: Row(
                   children: [
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: AppColors.primary.withOpacity(0.1),
+                        color: AppColors.primary.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(

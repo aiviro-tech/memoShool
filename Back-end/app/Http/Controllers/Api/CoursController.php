@@ -63,6 +63,15 @@ class CoursController extends Controller
 
     public function store(Request $request, int $ecole_id): JsonResponse
     {
+        $user = $request->user();
+
+        if (!$user->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Seuls les administrateurs peuvent creer des cours.',
+            ], 403);
+        }
+
         $validated = $request->validate([
             'matiere_id'       => 'required|exists:matieres,id',
             'enseignant_id'    => 'required|exists:users,id',
@@ -71,7 +80,7 @@ class CoursController extends Controller
             'date_cours'       => 'required|date|after_or_equal:today',
             'heure_debut'      => 'required|date_format:H:i',
             'heure_fin'        => 'required|date_format:H:i|after:heure_debut',
-            'semestre'         => 'required|in:S1,S2',
+            'semestre'         => 'required|in:S1,S2,S3,S4,S5,S6,S7,S8,S9,S10',
             'annee_academique' => 'required|string|max:10',
             'notes'            => 'nullable|string',
         ]);
@@ -120,6 +129,15 @@ class CoursController extends Controller
 
     public function update(Request $request, int $ecole_id, int $id): JsonResponse
     {
+        $user = $request->user();
+
+        if (!$user->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Seuls les administrateurs peuvent modifier des cours.',
+            ], 403);
+        }
+
         $cours = Cours::where('ecole_id', $ecole_id)->findOrFail($id);
 
         if ($cours->statut === 'termine') {
@@ -140,7 +158,7 @@ class CoursController extends Controller
             'statut'           => 'sometimes|in:planifie,confirme,annule,reporte,termine',
             'motif_annulation' => 'nullable|string',
             'notes'            => 'nullable|string',
-            'semestre'         => 'sometimes|in:S1,S2',
+            'semestre'         => 'sometimes|in:S1,S2,S3,S4,S5,S6,S7,S8,S9,S10',
             'annee_academique' => 'sometimes|string|max:10',
         ]);
 
@@ -173,8 +191,17 @@ class CoursController extends Controller
         ]);
     }
 
-    public function destroy(int $ecole_id, int $id): JsonResponse
+    public function destroy(Request $request, int $ecole_id, int $id): JsonResponse
     {
+        $user = $request->user();
+
+        if (!$user->isAdmin()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Seuls les administrateurs peuvent supprimer des cours.',
+            ], 403);
+        }
+
         $cours = Cours::where('ecole_id', $ecole_id)->findOrFail($id);
 
         if ($cours->statut === 'termine') {
@@ -219,11 +246,57 @@ class CoursController extends Controller
 
         $cours = $query->get()->groupBy(fn($c) => $c->date_cours->toDateString());
 
+        // Convertir la collection groupée en tableau associatif
+        $emploiDuTemps = [];
+        foreach ($cours as $date => $coursDuJour) {
+            $emploiDuTemps[$date] = $coursDuJour->map(function ($c) {
+                return [
+                    'id' => $c->id,
+                    'matiere' => [
+                        'id' => $c->matiere->id,
+                        'nom' => $c->matiere->nom,
+                        'code' => $c->matiere->code,
+                        'credits' => $c->matiere->credits,
+                    ],
+                    'enseignant' => [
+                        'id' => $c->enseignant->id,
+                        'first_name' => $c->enseignant->first_name,
+                        'last_name' => $c->enseignant->last_name,
+                        'full_name' => $c->enseignant->first_name . ' ' . $c->enseignant->last_name,
+                    ],
+                    'salle' => [
+                        'id' => $c->salle->id,
+                        'nom' => $c->salle->nom,
+                        'code' => $c->salle->code,
+                        'capacite' => $c->salle->capacite,
+                    ],
+                    'classe' => [
+                        'id' => $c->classe->id,
+                        'nom' => $c->classe->nom,
+                        'code' => $c->classe->code,
+                        'filiere' => [
+                            'id' => $c->classe->filiere->id,
+                            'nom' => $c->classe->filiere->nom,
+                        ],
+                        'niveau' => $c->classe->niveau,
+                    ],
+                    'date_cours' => $c->date_cours->toDateString(),
+                    'heure_debut' => $c->heure_debut,
+                    'heure_fin' => $c->heure_fin,
+                    'statut' => $c->statut,
+                    'semestre' => $c->semestre,
+                    'annee_academique' => $c->annee_academique,
+                    'notes' => $c->notes,
+                    'motif_annulation' => $c->motif_annulation,
+                ];
+            })->toArray();
+        }
+
         return response()->json([
             'success'         => true,
             'semaine_debut'   => $debut,
             'semaine_fin'     => $fin,
-            'emploi_du_temps' => $cours,
+            'emploi_du_temps' => $emploiDuTemps,
         ]);
     }
 

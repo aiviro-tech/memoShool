@@ -49,6 +49,7 @@ class _EcolesSelectionPageState extends State<EcolesSelectionPage> {
                   );
                 }
               } catch (e) {
+                if (!mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(e.toString()),
@@ -136,42 +137,57 @@ class _EcolesSelectionPageState extends State<EcolesSelectionPage> {
                   ),
                   const SizedBox(height: 16),
                   ...ecolesActives.map(
-                    (ecole) => _CarteEcole(
-                      nom: ecole['nom'] ?? 'École sans nom',
-                      ville: ecole['ville'] ?? '',
-                      role: ecole['role'] ?? '',
-                      ecoleId: ecole['ecole_id'] is int
+                    (ecole) {
+                      final role = (ecole['role'] ?? '').toString().toLowerCase();
+                      final isOwner = ecole['is_owner'] == true;
+                      final ecoleId = ecole['ecole_id'] is int
                           ? ecole['ecole_id'] as int
-                          : int.tryParse(ecole['ecole_id']?.toString() ?? '') ??
-                                0,
-                      onTap: () {
-                        if ((ecole['role'] ?? '').toString().toLowerCase() ==
-                            'admin') {
-                          Navigator.pushNamed(
-                            context,
-                            '/admin-dashboard',
-                            arguments: ecole['ecole_id']?.toString() ?? '0',
-                          );
-                          return;
-                        }
+                          : int.tryParse(ecole['ecole_id']?.toString() ?? '') ?? 0;
+                      final nomEcole = ecole['nom']?.toString() ?? 'École';
 
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => DashboardPrincipal(
-                              nomEcole: ecole['nom']?.toString() ?? 'École',
+                      return _CarteEcole(
+                        nom: nomEcole,
+                        ville: ecole['ville'] ?? '',
+                        role: role,
+                        ecoleId: ecoleId,
+                        isOwner: isOwner,
+                        onTap: () {
+                          // Mémoriser l'école dans la session
+                          SessionUtilisateur().setEcole(
+                            nomEcole,
+                            ecoleId,
+                            owner: isOwner,
+                          );
+
+                          // Admin propriétaire → page de gestion des codes et demandes
+                          if (role == 'admin' && isOwner) {
+                            Navigator.pushNamed(
+                              context,
+                              '/admin-dashboard',
+                              arguments: ecoleId.toString(),
+                            );
+                            return;
+                          }
+
+                          // Tous les autres (admin secondaire, enseignant, étudiant) → dashboard principal
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => DashboardPrincipal(
+                                nomEcole: nomEcole,
+                              ),
                             ),
-                          ),
-                        );
-                      },
-                    ),
+                          );
+                        },
+                      );
+                    },
                   ),
                   const SizedBox(height: 30),
                 ] else ...[
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: Colors.orange.withOpacity(0.1),
+                      color: Colors.orange.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Row(
@@ -205,7 +221,7 @@ class _EcolesSelectionPageState extends State<EcolesSelectionPage> {
                     (demande) => _CarteDemande(
                       nom: demande['nom'] ?? '',
                       role: demande['role'] ?? '',
-                      statut: '⏳ En attente',
+                      statut: 'â³ En attente',
                       couleur: Colors.orange,
                     ),
                   ),
@@ -289,6 +305,7 @@ class _CarteEcole extends StatelessWidget {
   final String ville;
   final String role;
   final int ecoleId;
+  final bool isOwner;
   final VoidCallback onTap;
 
   const _CarteEcole({
@@ -296,57 +313,90 @@ class _CarteEcole extends StatelessWidget {
     required this.ville,
     required this.role,
     required this.ecoleId,
+    required this.isOwner,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    String roleLabel;
+    Color roleColor;
+    IconData roleIcon;
+
+    switch (role.toLowerCase()) {
+      case 'admin':
+        roleLabel = isOwner ? 'Administrateur (Propriétaire)' : 'Administrateur';
+        roleColor = AppColors.primary;
+        roleIcon = isOwner ? Icons.admin_panel_settings : Icons.manage_accounts;
+        break;
+      case 'enseignant':
+        roleLabel = 'Enseignant';
+        roleColor = AppColors.green;
+        roleIcon = Icons.school;
+        break;
+      default:
+        roleLabel = 'Étudiant';
+        roleColor = AppColors.orange;
+        roleIcon = Icons.person;
+    }
+
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.all(16),
         margin: const EdgeInsets.only(bottom: 12),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppColors.primary.withOpacity(0.2)),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: roleColor.withValues(alpha: 0.25)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            Row(
-              children: [
-                const Icon(Icons.school, color: AppColors.primary, size: 28),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        nom,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.textMain,
-                        ),
-                      ),
-                      Text(
-                        "$ville • Rôle: $role",
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.textSub,
-                        ),
-                      ),
-                    ],
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: roleColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(roleIcon, color: roleColor, size: 24),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    nom,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textMain,
+                    ),
                   ),
-                ),
-                const Icon(
-                  Icons.arrow_forward_ios,
-                  size: 16,
-                  color: AppColors.primary,
-                ),
-              ],
+                  const SizedBox(height: 3),
+                  Text(
+                    ville.isNotEmpty ? '$ville • $roleLabel' : roleLabel,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: roleColor,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.arrow_forward_ios,
+              size: 14,
+              color: AppColors.textSub,
             ),
           ],
         ),
@@ -354,6 +404,7 @@ class _CarteEcole extends StatelessWidget {
     );
   }
 }
+
 
 class _CarteDemande extends StatelessWidget {
   final String nom;
@@ -374,9 +425,9 @@ class _CarteDemande extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: couleur.withOpacity(0.1),
+        color: couleur.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: couleur.withOpacity(0.3)),
+        border: Border.all(color: couleur.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
@@ -394,7 +445,7 @@ class _CarteDemande extends StatelessWidget {
                   "Rôle: $role • $statut",
                   style: TextStyle(
                     fontSize: 12,
-                    color: couleur.withOpacity(0.7),
+                    color: couleur.withValues(alpha: 0.7),
                   ),
                 ),
               ],

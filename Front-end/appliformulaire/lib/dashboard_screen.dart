@@ -1,6 +1,7 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:appliformulaire/main.dart';
 import 'package:appliformulaire/models/session_utilisateur.dart';
+import 'package:appliformulaire/features/cours/cours_page.dart';
 
 // ================================================
 // CONFIGURATION ET COMPOSANTS POUR DASHBOARD UNIFIÉ
@@ -182,7 +183,7 @@ class _FeatureCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: feature.color.withOpacity(0.1),
+                  color: feature.color.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(feature.icon, color: feature.color, size: 24),
@@ -349,7 +350,10 @@ class _AccueilPrincipal extends StatelessWidget {
   void _navigateToFeature(BuildContext context, String route) {
     switch (route) {
       case 'gestion_cours':
-        // Navigation vers gestion des cours
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const CoursPage()),
+        );
         break;
       case 'suivi_academique':
         // Navigation vers suivi académique
@@ -401,7 +405,7 @@ class _Header extends StatelessWidget {
             children: [
               CircleAvatar(
                 radius: 25,
-                backgroundColor: Colors.white.withOpacity(0.2),
+                backgroundColor: Colors.white.withValues(alpha: 0.2),
                 child: Text(
                   prenom.isNotEmpty ? prenom[0].toUpperCase() : '?',
                   style: const TextStyle(
@@ -454,18 +458,6 @@ class _Header extends StatelessWidget {
 // ================================================
 // PAGES PLACEHOLDER POUR LES AUTRES FONCTIONNALITÉS
 // ================================================
-class _MembresPage extends StatelessWidget {
-  const _MembresPage();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Gestion des Membres")),
-      body: const Center(child: Text("Page Membres - À implémenter")),
-    );
-  }
-}
-
 class _ProfilPage extends StatelessWidget {
   const _ProfilPage();
 
@@ -491,42 +483,6 @@ class _NotificationsPage extends StatelessWidget {
           style: TextStyle(fontSize: 16, color: AppColors.textSub),
         ),
       ),
-    );
-  }
-}
-
-class _CoursEnseignantPage extends StatelessWidget {
-  const _CoursEnseignantPage();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Mes Cours")),
-      body: const Center(child: Text("Page Cours Enseignant - À implémenter")),
-    );
-  }
-}
-
-class _CoursEtudiantPage extends StatelessWidget {
-  const _CoursEtudiantPage();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Mes Cours")),
-      body: const Center(child: Text("Page Cours Étudiant - À implémenter")),
-    );
-  }
-}
-
-class _EmploiDuTempsPage extends StatelessWidget {
-  const _EmploiDuTempsPage();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Emploi du Temps")),
-      body: const Center(child: Text("Page Emploi du Temps - À implémenter")),
     );
   }
 }

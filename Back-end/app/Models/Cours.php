@@ -65,4 +65,10 @@ class Cours extends Model
     {
         return $this->belongsTo(Ecole::class);
     }
+
+    // Supports de cours associés
+    public function supports()
+    {
+        return $this->hasMany(SupportCours::class);
+    }
 }

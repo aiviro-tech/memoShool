@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\ClasseController;
 use App\Http\Controllers\Api\SalleController;
 use App\Http\Controllers\Api\MatiereController;
 use App\Http\Controllers\Api\CoursController;
+use App\Http\Controllers\Api\SupportCoursController;
 
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login',    [AuthController::class, 'login']);
@@ -54,6 +55,9 @@ Route::middleware('auth:sanctum')->group(function () {
    // ── Routes par école ────────────────────────────────────
     Route::prefix('ecoles/{ecole_id}')->group(function () {
 
+        // Membres de l'école (Enseignants, étudiants, etc)
+        Route::get('/membres', [\App\Http\Controllers\Api\EcoleController::class, 'membres']);
+
         // Filières
         Route::get('/filieres', [FiliereController::class, 'index']);
         Route::post('/filieres', [FiliereController::class, 'store']);
@@ -86,5 +90,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/cours/{id}', [CoursController::class, 'update']);
         Route::delete('/cours/{id}', [CoursController::class, 'destroy']);
         Route::patch('/cours/{id}/statut', [CoursController::class, 'changerStatut']);
+
+        // Supports de cours
+        Route::get('/supports', [SupportCoursController::class, 'index']);
+        Route::post('/supports', [SupportCoursController::class, 'store']);
+        Route::put('/supports/{id}/valider', [SupportCoursController::class, 'valider']);
+        Route::put('/supports/{id}/rejeter', [SupportCoursController::class, 'rejeter']);
+        Route::get('/supports/{id}/download', [SupportCoursController::class, 'download']);
+        Route::delete('/supports/{id}', [SupportCoursController::class, 'destroy']);
     });
 });
