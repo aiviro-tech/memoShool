@@ -303,7 +303,7 @@ class EcoleController extends Controller {
             'statut_etudiant'  => $request->statut_etudiant,
             'tuteur_nom'       => $request->tuteur_nom,
             'tuteur_tel'       => $request->tuteur_tel,
-            'matiere_principale' => $request->matiere_principale,
+            'ecue_principale' => $request->ecue_principale,
             'diplome'          => $request->diplome,
             'experience_annees'=> $request->experience_annees,
             'type_contrat'     => $request->type_contrat,

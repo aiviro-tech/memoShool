@@ -157,7 +157,7 @@ class SemestreController extends Controller
             return response()->json(['success' => false, 'message' => 'Semestre non trouvé.'], 404);
         }
 
-        if ($semestre->ecues()->count() > 0) {
+        if ($semestre->ues()->count() > 0) {
             return response()->json([
                 'success' => false,
                 'message' => 'Impossible de supprimer ce semestre car des ECUEs y sont rattachées.'

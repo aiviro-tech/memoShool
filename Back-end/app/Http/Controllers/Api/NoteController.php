@@ -69,7 +69,6 @@ class NoteController extends Controller
         $validated = $request->validate([
             'ecue_id'          => 'required|exists:ecues,id',
             'classe_id'        => 'required|exists:classes,id',
-            'semestre_id'      => 'required|exists:semestres,id',
             'enseignant_id'    => 'sometimes|exists:users,id',
             'titre'            => 'required|string|max:255',
             'type'             => 'required|in:CC,TP,TD,EXAMEN',

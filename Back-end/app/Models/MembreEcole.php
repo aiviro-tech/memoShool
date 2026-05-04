@@ -9,7 +9,7 @@ class MembreEcole extends Model {
     protected $fillable = [
         'user_id', 'ecole_id', 'role', 'statut', 'code_utilise',
         'niveau', 'matricule', 'annee_entree', 'statut_etudiant',
-        'tuteur_nom', 'tuteur_tel', 'matiere_principale', 'diplome',
+        'tuteur_nom', 'tuteur_tel', 'ecue_principale', 'diplome',
         'experience_annees', 'type_contrat', 'poste', 'service',
         'niveau_acces', 'motif_rejet', 'validated_by', 'validated_at', 'joined_at',
     ];

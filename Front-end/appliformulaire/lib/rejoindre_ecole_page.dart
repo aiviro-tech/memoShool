@@ -1114,7 +1114,7 @@ class _EtapeInfosComplementairesState
 
   // Champs enseignant
 
-  final _matiereController = TextEditingController();
+  final _ecueController = TextEditingController();
 
   final _diplomeController = TextEditingController();
 
@@ -1186,7 +1186,7 @@ class _EtapeInfosComplementairesState
 
         'tuteur_tel': _tuteurTelController.text.trim(),
 
-        'matiere_principale': _matiereController.text.trim(),
+        'ecue_principale': _ecueController.text.trim(),
 
         'diplome': _diplomeController.text.trim(),
 
@@ -1532,7 +1532,7 @@ class _EtapeInfosComplementairesState
 
       children: [
 
-        _champ("ECUE principal *", _matiereController, obligatoire: true),
+        _champ("ECUE principal *", _ecueController, obligatoire: true),
 
         const SizedBox(height: 14),
 

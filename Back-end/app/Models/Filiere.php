@@ -24,10 +24,10 @@ class Filiere extends Model
         return $this->hasMany(Classe::class);
     }
 
-    // Une filière a plusieurs ECUEs
-    public function ecues()
+    // Une filière a plusieurs UEs (via ses semestres)
+    public function ues()
     {
-        return $this->hasMany(Ecue::class);
+        return $this->hasManyThrough(Ue::class, Semestre::class);
     }
 
     // Une filière a plusieurs semestres
