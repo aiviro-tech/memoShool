@@ -305,15 +305,39 @@ class ApiService {
     return response.data;
   }
 
-  // ================= MATIÈRES =================
+  // ================= SEMESTRES =================
 
-  static Future<Map<String, dynamic>> getMatieres(int ecoleId) async {
-    final response = await dio.get('/api/ecoles/$ecoleId/matieres');
+  static Future<Map<String, dynamic>> getSemestres(int ecoleId) async {
+    final response = await dio.get('/api/ecoles/$ecoleId/semestres');
     return response.data;
   }
 
-  static Future<Map<String, dynamic>> creerMatiere(int ecoleId, Map<String, dynamic> data) async {
-    final response = await dio.post('/api/ecoles/$ecoleId/matieres', data: data);
+  static Future<Map<String, dynamic>> creerSemestre(int ecoleId, Map<String, dynamic> data) async {
+    final response = await dio.post('/api/ecoles/$ecoleId/semestres', data: data);
+    return response.data;
+  }
+
+  // ================= UES =================
+
+  static Future<Map<String, dynamic>> getUes(int ecoleId) async {
+    final response = await dio.get('/api/ecoles/$ecoleId/ues');
+    return response.data;
+  }
+
+  static Future<Map<String, dynamic>> creerUe(int ecoleId, Map<String, dynamic> data) async {
+    final response = await dio.post('/api/ecoles/$ecoleId/ues', data: data);
+    return response.data;
+  }
+
+  // ================= ECUES =================
+
+  static Future<Map<String, dynamic>> getEcues(int ecoleId) async {
+    final response = await dio.get('/api/ecoles/$ecoleId/ecues');
+    return response.data;
+  }
+
+  static Future<Map<String, dynamic>> creerEcue(int ecoleId, Map<String, dynamic> data) async {
+    final response = await dio.post('/api/ecoles/$ecoleId/ecues', data: data);
     return response.data;
   }
 

@@ -14,10 +14,12 @@ class Classe extends Model
         'filiere_id',
         'annee_academique',
         'actif',
+        'coutScolarite',
     ];
 
     protected $casts = [
         'actif' => 'boolean',
+        'coutScolarite' => 'decimal:2',
     ];
 
     // Une classe appartient à une filière
@@ -41,8 +43,18 @@ class Classe extends Model
     }
 
     // Une classe appartient à une école
-        public function ecole()
+    public function ecole()
     {
         return $this->belongsTo(Ecole::class);
     }
+
+    public function echeances()
+    {
+        return $this->hasMany(EcheanceClasse::class)->orderBy('numero');
+    }
+
+    public function typesFrais()
+{
+    return $this->hasMany(TypeFrais::class);
+}
 }

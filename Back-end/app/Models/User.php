@@ -76,6 +76,18 @@ class User extends Authenticatable
     {
         return $this->hasMany(PasswordResetOtp::class);
     }
+
+    public function fcmTokens()
+    {
+        return $this->hasMany(FcmToken::class);
+    }
+
+    public function notifications()
+    {
+        return $this->hasMany(Notification::class);
+    }
+
+    
     /**
      * Get the attributes that should be cast.
      *

@@ -363,7 +363,7 @@ class _CreneauCours extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    cours.matiere,
+                    cours.ecue,
                     style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,

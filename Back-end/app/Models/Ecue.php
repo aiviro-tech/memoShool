@@ -4,17 +4,17 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-class Matiere extends Model
+class Ecue extends Model
 {
     protected $fillable = [
         'ecole_id',
+        'ue_id',
         'nom',
         'code',
         'credits',
         'volume_horaire',
         'type',
         'niveau',
-        'filiere_id',
         'description',
         'actif',
     ];
@@ -23,21 +23,22 @@ class Matiere extends Model
         'actif' => 'boolean',
     ];
 
-    // Une matière appartient à une filière (nullable = tronc commun)
-    public function filiere()
-    {
-        return $this->belongsTo(Filiere::class);
-    }
 
-    // Une matière a plusieurs cours
+    // Un ECUE a plusieurs cours
     public function cours()
     {
         return $this->hasMany(Cours::class);
     }
 
-    // Une matière appartient à une école (via la filière)
-        public function ecole()
+    // Un ECUE appartient à une école (via ue → semestre → filiere)
+    public function ecole()
     {
         return $this->belongsTo(Ecole::class);
+    }
+
+    // Relation avec l'UE
+    public function ue()
+    {
+        return $this->belongsTo(Ue::class);
     }
 }

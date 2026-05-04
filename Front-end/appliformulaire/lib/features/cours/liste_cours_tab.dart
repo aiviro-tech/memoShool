@@ -52,7 +52,7 @@ class _ListeCoursTabState extends State<ListeCoursTab> {
       builder: (_) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         title: const Text('Confirmer la suppression'),
-        content: Text('Supprimer le cours "${cours.matiere}" du ${cours.dateFormatee} ?'),
+        content: Text('Supprimer le cours "${cours.ecue}" du ${cours.dateFormatee} ?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -345,7 +345,7 @@ class _CarteCours extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          cours.matiere,
+                          cours.ecue,
                           style: const TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w600,
@@ -353,7 +353,7 @@ class _CarteCours extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          '${cours.matiereCode} • ${cours.matiereCredits} crédits',
+                          '${cours.ecueCode} • ${cours.ecueCredits} crédits',
                           style: const TextStyle(fontSize: 12, color: AppColors.textSub),
                         ),
                       ],

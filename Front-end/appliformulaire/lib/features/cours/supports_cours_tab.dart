@@ -93,10 +93,10 @@ class _SupportsCoursTabState extends State<SupportsCoursTab> {
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                   ),
                   items: coursList.map((c) {
-                    final mat = c['matiere'] ?? {};
+                    final ecue = c['ecue'] ?? {};
                     return DropdownMenuItem<int>(
                       value: c['id'] as int,
-                      child: Text('${mat['nom'] ?? ''} - ${c['date_cours'] ?? ''}',
+                      child: Text('${ecue['nom'] ?? ''} - ${c['date_cours'] ?? ''}',
                         style: const TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis),
                     );
                   }).toList(),
@@ -515,7 +515,7 @@ class _CarteSupport extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cours = support['cours'] as Map<String, dynamic>? ?? {};
-    final matiere = cours['matiere'] as Map<String, dynamic>? ?? {};
+    final ecue = cours['ecue'] as Map<String, dynamic>? ?? {};
     final enseignant = support['enseignant'] as Map<String, dynamic>? ?? {};
     final taille = support['fichier_taille'] ?? 0;
     final tailleStr = taille > 1048576
@@ -551,7 +551,7 @@ class _CarteSupport extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(support['titre'] ?? '', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textMain)),
-                      Text('${matiere['nom'] ?? 'Cours'} • ${support['fichier_nom'] ?? ''}',
+                      Text('${ecue['nom'] ?? 'Cours'} • ${support['fichier_nom'] ?? ''}',
                         style: const TextStyle(fontSize: 12, color: AppColors.textSub), overflow: TextOverflow.ellipsis),
                     ],
                   ),

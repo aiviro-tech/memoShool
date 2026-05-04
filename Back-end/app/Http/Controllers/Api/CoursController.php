@@ -14,7 +14,7 @@ class CoursController extends Controller
     public function index(Request $request, int $ecole_id): JsonResponse
     {
         $user  = $request->user();
-        $query = Cours::with(['matiere', 'enseignant', 'salle', 'classe.filiere'])
+        $query = Cours::with(['ecue.ue', 'enseignant', 'salle', 'classe.filiere', 'semestre'])
                       ->where('ecole_id', $ecole_id);
 
         if ($user->isEnseignant()) {
@@ -33,8 +33,8 @@ class CoursController extends Controller
         if ($request->filled('classe_id')) {
             $query->where('classe_id', $request->classe_id);
         }
-        if ($request->filled('semestre')) {
-            $query->where('semestre', $request->semestre);
+        if ($request->filled('semestre_id')) {
+            $query->where('semestre_id', $request->semestre_id);
         }
 
         $cours = $query->orderBy('date_cours')
@@ -51,8 +51,8 @@ class CoursController extends Controller
     public function show(int $ecole_id, int $id): JsonResponse
     {
         $cours = Cours::with([
-            'matiere', 'enseignant', 'salle',
-            'classe.filiere', 'classe.etudiants',
+            'ecue.ue', 'enseignant', 'salle',
+            'classe.filiere', 'classe.etudiants', 'semestre'
         ])->where('ecole_id', $ecole_id)->findOrFail($id);
 
         return response()->json([
@@ -73,15 +73,14 @@ class CoursController extends Controller
         }
 
         $validated = $request->validate([
-            'matiere_id'       => 'required|exists:matieres,id',
+            'ecue_id'          => 'required|exists:ecues,id',
             'enseignant_id'    => 'required|exists:users,id',
             'salle_id'         => 'required|exists:salles,id',
             'classe_id'        => 'required|exists:classes,id',
             'date_cours'       => 'required|date|after_or_equal:today',
             'heure_debut'      => 'required|date_format:H:i',
             'heure_fin'        => 'required|date_format:H:i|after:heure_debut',
-            'semestre'         => 'required|in:S1,S2,S3,S4,S5,S6,S7,S8,S9,S10',
-            'annee_academique' => 'required|string|max:10',
+            'semestre_id'      => 'required|exists:semestres,id',
             'notes'            => 'nullable|string',
         ]);
 
@@ -91,6 +90,41 @@ class CoursController extends Controller
                 'success' => false,
                 'message' => "L'utilisateur sélectionné n'est pas un enseignant.",
             ], 422);
+        }
+
+        $semestreAppartientEcole = \App\Models\Semestre::where('id', $validated['semestre_id'])
+            ->whereHas('filiere', function($q) use ($ecole_id) {
+                $q->where('ecole_id', $ecole_id);
+            })->exists();
+
+        if (!$semestreAppartientEcole) {
+            return response()->json([
+                'success' => false,
+                'message' => "Le semestre spécifié n'appartient pas à cette école.",
+            ], 403);
+        }
+
+        $ecueAppartientEcole = \App\Models\Ecue::where('id', $validated['ecue_id'])->where('ecole_id', $ecole_id)->exists();
+        if (!$ecueAppartientEcole) {
+            return response()->json(['success' => false, 'message' => "L'ECUE spécifiée n'appartient pas à cette école."], 403);
+        }
+
+        $salleAppartientEcole = \App\Models\Salle::where('id', $validated['salle_id'])->where('ecole_id', $ecole_id)->exists();
+        if (!$salleAppartientEcole) {
+            return response()->json(['success' => false, 'message' => "La salle spécifiée n'appartient pas à cette école."], 403);
+        }
+
+        $classeAppartientEcole = \App\Models\Classe::where('id', $validated['classe_id'])->where('ecole_id', $ecole_id)->exists();
+        if (!$classeAppartientEcole) {
+            return response()->json(['success' => false, 'message' => "La classe spécifiée n'appartient pas à cette école."], 403);
+        }
+
+        $enseignantEstMembre = \App\Models\MembreEcole::where('user_id', $validated['enseignant_id'])
+            ->where('ecole_id', $ecole_id)
+            ->where('statut', 'actif')
+            ->exists();
+        if (!$enseignantEstMembre) {
+            return response()->json(['success' => false, 'message' => "L'enseignant sélectionné n'est pas un membre actif de cette école."], 403);
         }
 
         $conflits = $this->verifierConflits(
@@ -118,7 +152,23 @@ class CoursController extends Controller
             'created_by' => $request->user()->id,
         ]);
 
-        $cours->load(['matiere', 'enseignant', 'salle', 'classe']);
+        $cours->load(['ecue.ue', 'enseignant', 'salle', 'classe', 'semestre']);
+
+        $notificationService = new \App\Services\NotificationService();
+
+        // Récupérer les étudiants de la classe
+        $cours->load('classe.etudiants');
+        $etudiantIds = $cours->classe->etudiants->pluck('id')->toArray();
+
+        // Ajouter aussi l'enseignant
+        $userIds = array_merge($etudiantIds, [$cours->enseignant_id]);
+
+        $notificationService->notifierCoursProgramme(
+            $cours->id,
+            $ecole_id,
+            $userIds,
+            false // pas une modification
+        );
 
         return response()->json([
             'success' => true,
@@ -148,7 +198,7 @@ class CoursController extends Controller
         }
 
         $validated = $request->validate([
-            'matiere_id'       => 'sometimes|exists:matieres,id',
+            'ecue_id'          => 'sometimes|exists:ecues,id',
             'enseignant_id'    => 'sometimes|exists:users,id',
             'salle_id'         => 'sometimes|exists:salles,id',
             'classe_id'        => 'sometimes|exists:classes,id',
@@ -158,13 +208,57 @@ class CoursController extends Controller
             'statut'           => 'sometimes|in:planifie,confirme,annule,reporte,termine',
             'motif_annulation' => 'nullable|string',
             'notes'            => 'nullable|string',
-            'semestre'         => 'sometimes|in:S1,S2,S3,S4,S5,S6,S7,S8,S9,S10',
-            'annee_academique' => 'sometimes|string|max:10',
+            'semestre_id'      => 'sometimes|exists:semestres,id',
         ]);
+
+        if (isset($validated['semestre_id']) && $validated['semestre_id'] !== $cours->semestre_id) {
+            $semestreAppartientEcole = \App\Models\Semestre::where('id', $validated['semestre_id'])
+                ->whereHas('filiere', function($q) use ($ecole_id) {
+                    $q->where('ecole_id', $ecole_id);
+                })->exists();
+
+            if (!$semestreAppartientEcole) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Le semestre spécifié n'appartient pas à cette école.",
+                ], 403);
+            }
+        }
+
+        if (isset($validated['ecue_id']) && $validated['ecue_id'] !== $cours->ecue_id) {
+            $ecueAppartientEcole = \App\Models\Ecue::where('id', $validated['ecue_id'])->where('ecole_id', $ecole_id)->exists();
+            if (!$ecueAppartientEcole) {
+                return response()->json(['success' => false, 'message' => "L'ECUE spécifiée n'appartient pas à cette école."], 403);
+            }
+        }
+
+        if (isset($validated['salle_id']) && $validated['salle_id'] !== $cours->salle_id) {
+            $salleAppartientEcole = \App\Models\Salle::where('id', $validated['salle_id'])->where('ecole_id', $ecole_id)->exists();
+            if (!$salleAppartientEcole) {
+                return response()->json(['success' => false, 'message' => "La salle spécifiée n'appartient pas à cette école."], 403);
+            }
+        }
+
+        if (isset($validated['classe_id']) && $validated['classe_id'] !== $cours->classe_id) {
+            $classeAppartientEcole = \App\Models\Classe::where('id', $validated['classe_id'])->where('ecole_id', $ecole_id)->exists();
+            if (!$classeAppartientEcole) {
+                return response()->json(['success' => false, 'message' => "La classe spécifiée n'appartient pas à cette école."], 403);
+            }
+        }
+
+        if (isset($validated['enseignant_id']) && $validated['enseignant_id'] !== $cours->enseignant_id) {
+            $enseignantEstMembre = \App\Models\MembreEcole::where('user_id', $validated['enseignant_id'])
+                ->where('ecole_id', $ecole_id)
+                ->where('statut', 'actif')
+                ->exists();
+            if (!$enseignantEstMembre) {
+                return response()->json(['success' => false, 'message' => "L'enseignant sélectionné n'est pas un membre actif de cette école."], 403);
+            }
+        }
 
         $conflits = $this->verifierConflits(
             $ecole_id,
-            $validated['date_cours']    ?? ($cours->date_cours instanceof \Carbon\Carbon ? ($cours->date_cours instanceof \Carbon\Carbon ? $cours->date_cours->toDateString() : $cours->date_cours) : $cours->date_cours),
+            $validated['date_cours']    ?? ($cours->date_cours instanceof \Carbon\Carbon ? $cours->date_cours->toDateString() : $cours->date_cours),
             $validated['heure_debut']   ?? $cours->heure_debut,
             $validated['heure_fin']     ?? $cours->heure_fin,
             $validated['salle_id']      ?? $cours->salle_id,
@@ -181,8 +275,22 @@ class CoursController extends Controller
             ], 409);
         }
 
+        $cours->load(['ecue.ue', 'enseignant', 'salle', 'classe', 'semestre']);
+
         $cours->update($validated);
-        $cours->load(['matiere', 'enseignant', 'salle', 'classe']);
+
+        $notificationService = new \App\Services\NotificationService();
+
+        $cours->load('classe.etudiants');
+        $etudiantIds = $cours->classe->etudiants->pluck('id')->toArray();
+        $userIds     = array_merge($etudiantIds, [$cours->enseignant_id]);
+
+        $notificationService->notifierCoursProgramme(
+            $cours->id,
+            $ecole_id,
+            $userIds,
+            true // modification
+        );
 
         return response()->json([
             'success' => true,
@@ -230,7 +338,7 @@ class CoursController extends Controller
         $debut = $semaine->toDateString();
         $fin   = $semaine->copy()->endOfWeek()->toDateString();
 
-        $query = Cours::with(['matiere', 'enseignant', 'salle', 'classe'])
+        $query = Cours::with(['ecue.ue', 'enseignant', 'salle', 'classe', 'semestre'])
                       ->where('ecole_id', $ecole_id)
                       ->whereBetween('date_cours', [$debut, $fin])
                       ->where('statut', '!=', 'annule')
@@ -252,11 +360,11 @@ class CoursController extends Controller
             $emploiDuTemps[$date] = $coursDuJour->map(function ($c) {
                 return [
                     'id' => $c->id,
-                    'matiere' => [
-                        'id' => $c->matiere->id,
-                        'nom' => $c->matiere->nom,
-                        'code' => $c->matiere->code,
-                        'credits' => $c->matiere->credits,
+                    'ecue' => [
+                        'id' => $c->ecue->id,
+                        'nom' => $c->ecue->nom,
+                        'code' => $c->ecue->code,
+                        'credits' => $c->ecue->credits,
                     ],
                     'enseignant' => [
                         'id' => $c->enseignant->id,
@@ -284,8 +392,8 @@ class CoursController extends Controller
                     'heure_debut' => $c->heure_debut,
                     'heure_fin' => $c->heure_fin,
                     'statut' => $c->statut,
-                    'semestre' => $c->semestre,
-                    'annee_academique' => $c->annee_academique,
+                    'semestre' => $c->semestre ? $c->semestre->numero : null,
+                    'annee_academique' => $c->semestre ? $c->semestre->annee_academique : null,
                     'notes' => $c->notes,
                     'motif_annulation' => $c->motif_annulation,
                 ];
@@ -314,7 +422,7 @@ class CoursController extends Controller
         return response()->json([
             'success' => true,
             'message' => "Statut mis à jour : {$validated['statut']}.",
-            'data'    => $cours->fresh(['matiere', 'enseignant', 'salle', 'classe']),
+            'data'    => $cours->fresh(['ecue.ue', 'enseignant', 'salle', 'classe', 'semestre']),
         ]);
     }
 

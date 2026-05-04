@@ -23,18 +23,20 @@ class _FormulaireCoursPageState extends State<FormulaireCoursPage> {
   bool _chargementDonnees = true;
 
   // Données des listes déroulantes
-  List<Map<String, dynamic>> _matieres = [];
+  List<Map<String, dynamic>> _ecues = [];
   List<Map<String, dynamic>> _salles = [];
   List<Map<String, dynamic>> _classes = [];
   List<Map<String, dynamic>> _enseignants = [];
   List<Map<String, dynamic>> _filieres = [];
+  List<Map<String, dynamic>> _semestres = [];
+  List<Map<String, dynamic>> _ues = [];
 
   // Valeurs sélectionnées
-  int? _matiereId;
+  int? _ecueId;
   int? _salleId;
   int? _classeId;
   int? _enseignantId;
-  String _semestre = 'S1';
+  int? _semestreId;
 
   // Controllers
   late TextEditingController _dateCtrl;
@@ -53,7 +55,6 @@ class _FormulaireCoursPageState extends State<FormulaireCoursPage> {
     _heureFinCtrl = TextEditingController(text: c?.heureFin ?? '');
     _notesCtrl = TextEditingController(text: c?.notes ?? '');
     _anneeCtrl = TextEditingController(text: c?.anneeAcademique ?? '');
-    _semestre = c?.semestre ?? 'S1';
 
     _chargerDonnees();
   }
@@ -65,9 +66,9 @@ class _FormulaireCoursPageState extends State<FormulaireCoursPage> {
 
     // On cherche les IDs correspondants dans les listes chargées
     // L'API retourne les objets liés, donc on peut recouper par nom
-    for (final m in _matieres) {
-      if (m['nom'] == c.matiere || m['code'] == c.matiereCode) {
-        _matiereId = m['id'] as int;
+    for (final e in _ecues) {
+      if (e['nom'] == c.ecue || e['code'] == c.ecueCode) {
+        _ecueId = e['id'] as int;
         break;
       }
     }
@@ -90,6 +91,12 @@ class _FormulaireCoursPageState extends State<FormulaireCoursPage> {
         break;
       }
     }
+    for (final sem in _semestres) {
+      if (sem['nom'] == c.semestre) {
+        _semestreId = sem['id'] as int;
+        break;
+      }
+    }
   }
 
   @override
@@ -105,25 +112,31 @@ class _FormulaireCoursPageState extends State<FormulaireCoursPage> {
   Future<void> _chargerDonnees() async {
     try {
       final results = await Future.wait([
-        ApiService.getMatieres(widget.ecoleId),
+        ApiService.getEcues(widget.ecoleId),
         ApiService.getClasses(widget.ecoleId),
         ApiService.getEnseignants(widget.ecoleId),
         ApiService.getSalles(widget.ecoleId),
         ApiService.getFilieres(widget.ecoleId),
+        ApiService.getSemestres(widget.ecoleId),
+        ApiService.getUes(widget.ecoleId),
       ]);
 
-      final matiereData = results[0] as Map<String, dynamic>;
+      final ecueData = results[0] as Map<String, dynamic>;
       final classeData = results[1] as Map<String, dynamic>;
       final enseignantData = results[2] as List<dynamic>;
       final salleData = results[3] as Map<String, dynamic>;
       final filiereData = results[4] as Map<String, dynamic>;
+      final semestreData = results[5] as Map<String, dynamic>;
+      final ueData = results[6] as Map<String, dynamic>;
 
       setState(() {
-        _matieres = List<Map<String, dynamic>>.from(matiereData['data'] ?? []);
+        _ecues = List<Map<String, dynamic>>.from(ecueData['data'] ?? []);
         _classes = List<Map<String, dynamic>>.from(classeData['data'] ?? []);
         _enseignants = List<Map<String, dynamic>>.from(enseignantData);
         _salles = List<Map<String, dynamic>>.from(salleData['data'] ?? []);
         _filieres = List<Map<String, dynamic>>.from(filiereData['data'] ?? []);
+        _semestres = List<Map<String, dynamic>>.from(semestreData['data'] ?? []);
+        _ues = List<Map<String, dynamic>>.from(ueData['data'] ?? []);
         _chargementDonnees = false;
 
         // Pré-remplir les IDs si mode édition
@@ -239,7 +252,162 @@ class _FormulaireCoursPageState extends State<FormulaireCoursPage> {
     }
   }
 
-  Future<void> _creerMatiere() async {
+  Future<void> _creerSemestre() async {
+    final nomCtrl = TextEditingController();
+    int? filiereId;
+
+    if (_filieres.isEmpty) {
+      await _demanderCreerFiliere();
+      if (_filieres.isEmpty) return;
+    }
+    filiereId = _filieres.first['id'] as int;
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setS) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          title: const Text('Nouveau semestre', style: TextStyle(fontSize: 16)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nomCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Nom *',
+                  hintText: 'ex: Semestre 1',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<int>(
+                value: filiereId,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Filière *',
+                  border: OutlineInputBorder(),
+                ),
+                items: _filieres
+                    .map((f) => DropdownMenuItem<int>(
+                          value: f['id'] as int,
+                          child: Text(f['nom'] ?? ''),
+                        ))
+                    .toList(),
+                onChanged: (v) => setS(() => filiereId = v),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Créer')),
+          ],
+        ),
+      ),
+    );
+
+    if (result != true || nomCtrl.text.isEmpty || filiereId == null) return;
+    try {
+      await ApiService.creerSemestre(widget.ecoleId, {
+        'nom': nomCtrl.text.trim(),
+        'filiere_id': filiereId,
+      });
+      await _chargerDonnees();
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Semestre créé'), backgroundColor: AppColors.green),
+        );
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString()), backgroundColor: AppColors.red),
+        );
+    }
+  }
+
+  Future<void> _creerUe() async {
+    final nomCtrl = TextEditingController();
+    int? semestreId;
+
+    if (_semestres.isEmpty) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Aucun semestre'),
+          content: const Text('Vous devez créer un semestre avant de créer une UE.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
+            ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Créer semestre')),
+          ],
+        ),
+      );
+      if (confirm == true) await _creerSemestre();
+      if (_semestres.isEmpty) return;
+    }
+    semestreId = _semestres.first['id'] as int;
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (_) => StatefulBuilder(
+        builder: (ctx, setS) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          title: const Text('Nouvelle UE', style: TextStyle(fontSize: 16)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nomCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Nom *',
+                  hintText: 'ex: UE Mathématiques Fondamentales',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              DropdownButtonFormField<int>(
+                value: semestreId,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Semestre *',
+                  border: OutlineInputBorder(),
+                ),
+                items: _semestres
+                    .map((s) => DropdownMenuItem<int>(
+                          value: s['id'] as int,
+                          child: Text(s['nom'] ?? ''),
+                        ))
+                    .toList(),
+                onChanged: (v) => setS(() => semestreId = v),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Créer')),
+          ],
+        ),
+      ),
+    );
+
+    if (result != true || nomCtrl.text.isEmpty || semestreId == null) return;
+    try {
+      await ApiService.creerUe(widget.ecoleId, {
+        'nom': nomCtrl.text.trim(),
+        'semestre_id': semestreId,
+      });
+      await _chargerDonnees();
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('UE créée'), backgroundColor: AppColors.green),
+        );
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString()), backgroundColor: AppColors.red),
+        );
+    }
+  }
+
+  Future<void> _creerEcue() async {
     final nomCtrl = TextEditingController();
     final codeCtrl = TextEditingController();
     final creditsCtrl = TextEditingController(text: '3');
@@ -247,6 +415,24 @@ class _FormulaireCoursPageState extends State<FormulaireCoursPage> {
     String type = 'CM';
     String niveau = 'L1';
     bool troncCommun = false;
+    int? ueId;
+
+    if (_ues.isEmpty) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Aucune UE'),
+          content: const Text('Vous devez créer une UE avant de créer un ECUE.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
+            ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Créer UE')),
+          ],
+        ),
+      );
+      if (confirm == true) await _creerUe();
+      if (_ues.isEmpty) return;
+    }
+    ueId = _ues.first['id'] as int;
 
     final result = await showDialog<bool>(
       context: context,
@@ -255,7 +441,7 @@ class _FormulaireCoursPageState extends State<FormulaireCoursPage> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
-          title: const Text('Nouvelle matière', style: TextStyle(fontSize: 16)),
+          title: const Text('Nouvel ECUE', style: TextStyle(fontSize: 16)),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -362,6 +548,22 @@ class _FormulaireCoursPageState extends State<FormulaireCoursPage> {
                     ),
                   ],
                 ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<int>(
+                  value: ueId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'UE *',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: _ues
+                      .map((e) => DropdownMenuItem<int>(
+                            value: e['id'] as int,
+                            child: Text(e['nom'] ?? ''),
+                          ))
+                      .toList(),
+                  onChanged: (v) => setS(() => ueId = v),
+                ),
               ],
             ),
           ),
@@ -380,20 +582,21 @@ class _FormulaireCoursPageState extends State<FormulaireCoursPage> {
     );
     if (result != true || nomCtrl.text.isEmpty || codeCtrl.text.isEmpty) return;
     try {
-      await ApiService.creerMatiere(widget.ecoleId, {
+      await ApiService.creerEcue(widget.ecoleId, {
         'nom': nomCtrl.text.trim(),
         'code': codeCtrl.text.trim(),
         'credits': int.tryParse(creditsCtrl.text) ?? 3,
         'volume_horaire': int.tryParse(volumeCtrl.text) ?? 30,
         'type': type,
         'niveau': niveau,
+        'ue_id': ueId,
         if (!troncCommun) 'tronc_commun': true,
       });
       await _chargerDonnees();
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Matière créée'),
+            content: Text('ECUE créé'),
             backgroundColor: AppColors.green,
           ),
         );
@@ -671,10 +874,11 @@ class _FormulaireCoursPageState extends State<FormulaireCoursPage> {
     if (!_formKey.currentState!.validate()) return;
 
     // Validations manuelles des dropdowns
-    if (_matiereId == null ||
+    if (_ecueId == null ||
         _salleId == null ||
         _classeId == null ||
-        _enseignantId == null) {
+        _enseignantId == null ||
+        _semestreId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Veuillez remplir tous les champs obligatoires'),
@@ -687,14 +891,14 @@ class _FormulaireCoursPageState extends State<FormulaireCoursPage> {
     setState(() => _chargement = true);
 
     final data = {
-      'matiere_id': _matiereId,
+      'ecue_id': _ecueId,
       'salle_id': _salleId,
       'classe_id': _classeId,
       'enseignant_id': _enseignantId,
       'date_cours': _dateCtrl.text.trim(),
       'heure_debut': _heureDebutCtrl.text.trim(),
       'heure_fin': _heureFinCtrl.text.trim(),
-      'semestre': _semestre,
+      'semestre_id': _semestreId,
       'annee_academique': _anneeCtrl.text.trim(),
       if (_notesCtrl.text.isNotEmpty) 'notes': _notesCtrl.text.trim(),
     };
@@ -763,12 +967,12 @@ class _FormulaireCoursPageState extends State<FormulaireCoursPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Matiere
+                    // ECUE
                     _DropdownChamp<int>(
-                      label: 'Matière *',
+                      label: 'ECUE *',
                       icone: Icons.menu_book_outlined,
-                      valeur: _matiereId,
-                      items: _matieres
+                      valeur: _ecueId,
+                      items: _ecues
                           .map(
                             (m) => DropdownMenuItem<int>(
                               value: m['id'] as int,
@@ -780,7 +984,7 @@ class _FormulaireCoursPageState extends State<FormulaireCoursPage> {
                             ),
                           )
                           .toList(),
-                      onChanged: (v) => setState(() => _matiereId = v),
+                      onChanged: (v) => setState(() => _ecueId = v),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -790,8 +994,8 @@ class _FormulaireCoursPageState extends State<FormulaireCoursPage> {
                               size: 22,
                               color: AppColors.primary,
                             ),
-                            tooltip: 'Créer une matière',
-                            onPressed: _creerMatiere,
+                            tooltip: 'Créer un ECUE',
+                            onPressed: _creerEcue,
                           ),
                           IconButton(
                             icon: const Icon(
@@ -962,34 +1166,31 @@ class _FormulaireCoursPageState extends State<FormulaireCoursPage> {
                     const SizedBox(height: 14),
 
                     // Semestre
-                    _DropdownChamp<String>(
+                    _DropdownChamp<int>(
                       label: 'Semestre *',
                       icone: Icons.category_outlined,
-                      valeur: _semestre,
-                      items:
-                          [
-                                'S1',
-                                'S2',
-                                'S3',
-                                'S4',
-                                'S5',
-                                'S6',
-                                'S7',
-                                'S8',
-                                'S9',
-                                'S10',
-                              ]
-                              .map(
-                                (s) => DropdownMenuItem<String>(
-                                  value: s,
-                                  child: Text(
-                                    s,
-                                    style: const TextStyle(fontSize: 14),
-                                  ),
-                                ),
-                              )
-                              .toList(),
-                      onChanged: (v) => setState(() => _semestre = v!),
+                      valeur: _semestreId,
+                      items: _semestres
+                          .map(
+                            (s) => DropdownMenuItem<int>(
+                              value: s['id'] as int,
+                              child: Text(
+                                s['nom'] ?? '',
+                                style: const TextStyle(fontSize: 14),
+                              ),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (v) => setState(() => _semestreId = v),
+                      trailing: IconButton(
+                        icon: const Icon(
+                          Icons.add_circle_outline,
+                          size: 22,
+                          color: AppColors.primary,
+                        ),
+                        tooltip: 'Créer un semestre',
+                        onPressed: _creerSemestre,
+                      ),
                     ),
                     const SizedBox(height: 14),
 

@@ -1,8 +1,8 @@
 class CoursModel {
   final int id;
-  final String matiere;
-  final String matiereCode;
-  final int matiereCredits;
+  final String ecue;
+  final String ecueCode;
+  final int ecueCredits;
   final String enseignant;
   final int enseignantId;
   final String salle;
@@ -20,9 +20,9 @@ class CoursModel {
 
   CoursModel({
     required this.id,
-    required this.matiere,
-    required this.matiereCode,
-    required this.matiereCredits,
+    required this.ecue,
+    required this.ecueCode,
+    required this.ecueCredits,
     required this.enseignant,
     required this.enseignantId,
     required this.salle,
@@ -40,17 +40,17 @@ class CoursModel {
   });
 
   factory CoursModel.fromJson(Map<String, dynamic> json) {
-    final mat  = (json['matiere']    ?? {}) as Map<String, dynamic>;
-    final ens  = (json['enseignant'] ?? {}) as Map<String, dynamic>;
-    final sal  = (json['salle']      ?? {}) as Map<String, dynamic>;
-    final cls  = (json['classe']     ?? {}) as Map<String, dynamic>;
-    final fil  = (cls['filiere']     ?? {}) as Map<String, dynamic>;
+    final ecueJson = (json['ecue']       ?? {}) as Map<String, dynamic>;
+    final ens      = (json['enseignant'] ?? {}) as Map<String, dynamic>;
+    final sal      = (json['salle']      ?? {}) as Map<String, dynamic>;
+    final cls      = (json['classe']     ?? {}) as Map<String, dynamic>;
+    final fil      = (cls['filiere']     ?? {}) as Map<String, dynamic>;
 
     return CoursModel(
       id:              json['id'] ?? 0,
-      matiere:         mat['nom'] ?? '',
-      matiereCode:     mat['code'] ?? '',
-      matiereCredits:  mat['credits'] ?? 0,
+      ecue:            ecueJson['nom'] ?? '',
+      ecueCode:        ecueJson['code'] ?? '',
+      ecueCredits:     ecueJson['credits'] ?? 0,
       enseignant:      ens['full_name'] ?? '',
       enseignantId:    ens['id'] ?? 0,
       salle:           sal['nom'] ?? '',
@@ -61,7 +61,7 @@ class CoursModel {
       heureDebut:      json['heure_debut'] ?? '',
       heureFin:        json['heure_fin'] ?? '',
       statut:          json['statut'] ?? 'planifie',
-      semestre:        json['semestre'] ?? '',
+      semestre:        (json['semestre'] is Map) ? (json['semestre']['nom'] ?? '') : (json['semestre'] ?? ''),
       anneeAcademique: json['annee_academique'] ?? '',
       notes:           json['notes'],
       motifAnnulation: json['motif_annulation'],

@@ -19,7 +19,7 @@ class SupportCoursController extends Controller
     public function index(Request $request, int $ecole_id): JsonResponse
     {
         $user = $request->user();
-        $query = SupportCours::with(['cours.matiere', 'enseignant'])
+        $query = SupportCours::with(['cours.ecue.ue', 'enseignant'])
                              ->where('ecole_id', $ecole_id);
 
         if ($user->isEnseignant()) {
@@ -68,6 +68,21 @@ class SupportCoursController extends Controller
             'fichier'     => 'required|file|max:20480|mimes:pdf,doc,docx,ppt,pptx,xls,xlsx,jpg,jpeg,png,zip',
         ]);
 
+        $cours = \App\Models\Cours::where('ecole_id', $ecole_id)->find($validated['cours_id']);
+        if (!$cours) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Ce cours n\'appartient pas à cette école.',
+            ], 403);
+        }
+
+        if (!$user->isAdmin() && $cours->enseignant_id != $user->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Vous ne pouvez déposer un support que pour un cours que vous dispensez.',
+            ], 403);
+        }
+
         $fichier = $request->file('fichier');
         $path = $fichier->store("supports/ecole_{$ecole_id}", 'public');
 
@@ -84,7 +99,7 @@ class SupportCoursController extends Controller
             'statut'         => 'en_attente',
         ]);
 
-        $support->load(['cours.matiere', 'enseignant']);
+        $support->load(['cours.ecue.ue', 'enseignant']);
 
         return response()->json([
             'success' => true,
@@ -122,11 +137,24 @@ class SupportCoursController extends Controller
             'valide_at'  => now(),
         ]);
 
+        $notificationService = new \App\Services\NotificationService();
+
+        // Récupérer les étudiants de la classe concernée par ce cours
+        $support->load('cours.classe.etudiants');
+        $etudiantIds = $support->cours->classe->etudiants->pluck('id')->toArray();
+
+        $notificationService->notifierSupportValide(
+            $support->cours_id,
+            $ecole_id,
+            $etudiantIds
+        );
+
         return response()->json([
             'success' => true,
             'message' => 'Support validé avec succès.',
-            'data'    => $support->fresh(['cours.matiere', 'enseignant', 'validateur']),
+            'data'    => $support->fresh(['cours.ecue.ue', 'enseignant', 'validateur']),
         ]);
+
     }
 
     /**
@@ -166,7 +194,7 @@ class SupportCoursController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Support rejeté.',
-            'data'    => $support->fresh(['cours.matiere', 'enseignant']),
+            'data'    => $support->fresh(['cours.ecue.ue', 'enseignant']),
         ]);
     }
 
@@ -179,7 +207,7 @@ class SupportCoursController extends Controller
         $support = SupportCours::where('ecole_id', $ecole_id)->findOrFail($id);
 
         // Seul l'enseignant propriétaire ou un admin peut supprimer
-        if (!$user->isAdmin() && $support->enseignant_id !== $user->id) {
+        if (!$user->isAdmin() && $support->enseignant_id != $user->id) {
             return response()->json([
                 'success' => false,
                 'message' => 'Vous n\'avez pas la permission de supprimer ce support.',
@@ -209,12 +237,23 @@ class SupportCoursController extends Controller
         $user = $request->user();
         $support = SupportCours::where('ecole_id', $ecole_id)->findOrFail($id);
 
-        // Un etudiant ne peut telecharger que les supports valides
-        if ($user->isEtudiant() && $support->statut !== 'valide') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Ce support n\'est pas encore disponible au telechargement.',
-            ], 403);
+        // Un etudiant ne peut telecharger que les supports valides de sa classe
+        if ($user->isEtudiant()) {
+            if ($support->statut !== 'valide') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Ce support n\'est pas encore disponible au telechargement.',
+                ], 403);
+            }
+            
+            $support->load('cours');
+            $classeIds = $user->classes()->pluck('classes.id');
+            if (!$classeIds->contains($support->cours->classe_id)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Vous n\'êtes pas inscrit à la classe concernée par ce cours.',
+                ], 403);
+            }
         }
 
         if (!Storage::disk('public')->exists($support->fichier_path)) {
@@ -228,5 +267,49 @@ class SupportCoursController extends Controller
             $support->fichier_path,
             $support->fichier_nom
         );
+    }
+
+    /**
+     * Détail d'un support de cours.
+     * Admin/Enseignant : tous les supports
+     * Etudiant : uniquement les supports validés de sa classe
+     */
+    public function show(Request $request, int $ecole_id, int $id): JsonResponse
+    {
+        $user = $request->user();
+        $support = SupportCours::with(['cours.ecue.ue', 'enseignant', 'validateur'])
+                            ->where('ecole_id', $ecole_id)
+                            ->findOrFail($id);
+
+        // Un étudiant ne peut voir que les supports validés de sa classe
+        if ($user->isEtudiant()) {
+            if (!$support->estValide()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Ce support n\'est pas disponible.',
+                ], 403);
+            }
+
+            $classeIds = $user->classes()->pluck('classes.id');
+            if (!$classeIds->contains($support->cours->classe_id)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Vous n\'avez pas accès à ce support.',
+                ], 403);
+            }
+        }
+
+        // Un enseignant ne peut voir que ses propres supports
+        if ($user->isEnseignant() && $support->enseignant_id !== $user->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Vous n\'avez pas accès à ce support.',
+            ], 403);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data'    => $support,
+        ]);
     }
 }

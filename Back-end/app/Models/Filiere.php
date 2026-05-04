@@ -24,10 +24,16 @@ class Filiere extends Model
         return $this->hasMany(Classe::class);
     }
 
-    // Une filière a plusieurs matières
-    public function matieres()
+    // Une filière a plusieurs ECUEs
+    public function ecues()
     {
-        return $this->hasMany(Matiere::class);
+        return $this->hasMany(Ecue::class);
+    }
+
+    // Une filière a plusieurs semestres
+    public function semestres()
+    {
+        return $this->hasMany(Semestre::class);
     }
 
         // Une filière appartient à une école

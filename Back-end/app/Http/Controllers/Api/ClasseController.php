@@ -36,7 +36,19 @@ class ClasseController extends Controller
             'niveau'           => 'required|in:L1,L2,L3,M1,M2',
             'filiere_id'       => 'required|exists:filieres,id',
             'annee_academique' => 'required|string|max:10',
+            'coutScolarite'    => 'required|numeric|min:0',
         ]);
+
+        $filiereAppartientEcole = \App\Models\Filiere::where('id', $validated['filiere_id'])
+            ->where('ecole_id', $ecole_id)
+            ->exists();
+
+        if (!$filiereAppartientEcole) {
+            return response()->json([
+                'success' => false,
+                'message' => "La filière spécifiée n'appartient pas à cette école."
+            ], 403);
+        }
 
         $classe = Classe::create([
             ...$validated,
@@ -54,13 +66,22 @@ class ClasseController extends Controller
 
     public function update(Request $request, int $ecole_id, int $id): JsonResponse
     {
+        // Vérifier que l'utilisateur est un administrateur
+        if ($request->user()->role !== 'admin') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Seuls les administrateurs peuvent modifier une classe.',
+            ], 403);
+        }
+
         $classe = Classe::where('ecole_id', $ecole_id)->findOrFail($id);
 
         $validated = $request->validate([
-            'nom'   => 'sometimes|string|max:100',
-            'actif' => 'sometimes|boolean',
+            'nom'           => 'sometimes|string|max:100',
+            'actif'         => 'sometimes|boolean',
+            'coutScolarite' => 'sometimes|numeric|min:0',
         ]);
-
+        
         $classe->update($validated);
 
         return response()->json([

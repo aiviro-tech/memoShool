@@ -38,7 +38,7 @@ class _DetailCoursPageState extends State<DetailCoursPage> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Text(widget.cours.matiere),
+        title: Text(widget.cours.ecue),
         backgroundColor: AppColors.primary,
         foregroundColor: Colors.white,
         elevation: 0,
@@ -68,7 +68,7 @@ class _DetailCoursPageState extends State<DetailCoursPage> {
                   builder: (_) => AlertDialog(
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                     title: const Text('Confirmer la suppression'),
-                    content: Text('Supprimer le cours "${widget.cours.matiere}" ?'),
+                    content: Text('Supprimer le cours "${widget.cours.ecue}" ?'),
                     actions: [
                       TextButton(
                         onPressed: () => Navigator.pop(context, false),
@@ -202,7 +202,7 @@ class _DetailCoursPageState extends State<DetailCoursPage> {
                       _LigneInfo(
                         icone: Icons.star_outline,
                         label: 'Crédits',
-                        valeur: '${widget.cours.matiereCredits} crédits',
+                        valeur: '${widget.cours.ecueCredits} crédits',
                       ),
                     ],
                   ),
@@ -422,7 +422,7 @@ class _EnteteCours extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      cours.matiere,
+                      cours.ecue,
                       style: const TextStyle(
                         fontSize: 17,
                         fontWeight: FontWeight.bold,
@@ -430,7 +430,7 @@ class _EnteteCours extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      '${cours.matiereCode} ${cours.matiereCredits} crédits',
+                      '${cours.ecueCode} ${cours.ecueCredits} crédits',
                       style: const TextStyle(
                         fontSize: 12,
                         color: AppColors.textSub,

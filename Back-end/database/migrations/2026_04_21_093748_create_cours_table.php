@@ -37,8 +37,9 @@ return new class extends Migration
             ]);
             $table->text('motif_annulation')->nullable();
             $table->text('notes')->nullable();
-            $table->string('annee_academique');
-            $table->enum('semestre', ['S1', 'S2']);
+            $table->foreignId('semestre_id')
+                  ->constrained('semestres')
+                  ->onDelete('cascade');
             $table->foreignId('created_by')
                   ->nullable()
                   ->constrained('users')

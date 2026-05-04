@@ -7,12 +7,28 @@ class Ecole extends Model {
     protected $table = 'ecoles';
 
     protected $fillable = [
-        'nom_officiel', 'sigle', 'site_web', 'adresse', 'ville',
-        'code_postal', 'pays', 'email_principal', 'email_secondaire',
-        'tel_fixe', 'tel_mobile', 'nom_responsable', 'titre_responsable',
-        'numero_rne', 'type_etablissement', 'description_courte',
-        'description_complete', 'max_etudiants', 'max_enseignants',
-        'statut', 'admin_id', 'motif_refus',
+        'nom_officiel', 
+        'sigle', 
+        'site_web', 
+        'adresse', 
+        'ville',
+        'code_postal', 
+        'pays', 
+        'email_principal', 
+        'email_secondaire',
+        'tel_fixe', 
+        'tel_mobile', 
+        'nom_responsable', 
+        'titre_responsable',
+        'numero_rne', 
+        'type_etablissement', 
+        'description_courte',
+        'description_complete', 
+        'max_etudiants', 
+        'max_enseignants',
+        'statut', 
+        'admin_id', 
+        'motif_refus',
     ];
 
     public function admin() {
@@ -25,5 +41,10 @@ class Ecole extends Model {
 
     public function codes() {
         return $this->hasMany(CodeInvitation::class);
+    }
+
+    public function config()
+    {
+        return $this->hasOne(EcoleConfig::class);
     }
 }

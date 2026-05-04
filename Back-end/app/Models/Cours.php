@@ -11,18 +11,17 @@ class Cours extends Model
 
     protected $fillable = [
         'ecole_id',
-        'matiere_id',
+        'ecue_id',
         'enseignant_id',
         'salle_id',
         'classe_id',
+        'semestre_id',
         'date_cours',
         'heure_debut',
         'heure_fin',
         'statut',
         'motif_annulation',
         'notes',
-        'annee_academique',
-        'semestre',
         'created_by',
     ];
 
@@ -30,10 +29,10 @@ class Cours extends Model
         'date_cours' => 'date',
     ];
 
-    // Un cours appartient à une matière
-    public function matiere()
+    // Un cours appartient à un ECUE
+    public function ecue()
     {
-        return $this->belongsTo(Matiere::class);
+        return $this->belongsTo(Ecue::class);
     }
 
     // Un cours appartient à un enseignant
@@ -54,14 +53,20 @@ class Cours extends Model
         return $this->belongsTo(Classe::class);
     }
 
+    // Un cours appartient à un semestre
+    public function semestre()
+    {
+        return $this->belongsTo(Semestre::class);
+    }
+
     // Qui a créé ce cours
     public function createur()
     {
         return $this->belongsTo(User::class, 'created_by');
     }
 
-    // Un cours appartient à une école (via la classe)
-        public function ecole()
+    // Un cours appartient à une école
+    public function ecole()
     {
         return $this->belongsTo(Ecole::class);
     }

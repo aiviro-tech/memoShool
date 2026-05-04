@@ -35,4 +35,15 @@ return [
         ],
     ],
 
+    'fedapay' => [
+        'secret_key'  => env('FEDAPAY_SECRET_KEY'),
+        'public_key'  => env('FEDAPAY_PUBLIC_KEY'),
+        'environment' => env('FEDAPAY_ENVIRONMENT', 'sandbox'),
+    ],
+
+    'firebase' => [
+        'project_id'  => env('FIREBASE_PROJECT_ID'),
+        'credentials' => env('FIREBASE_CREDENTIALS'),
+    ],
+
 ];

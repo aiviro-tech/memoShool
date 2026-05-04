@@ -7,6 +7,11 @@
     "license": "MIT",
     "require": {
         "php": "^8.2",
+        "barryvdh/laravel-dompdf": "^3.1",
+        "fedapay/fedapay-php": "^0.4.8",
+        "google/auth": "^1.50",
+        "guzzlehttp/guzzle": "^7.10",
+        "kwn/number-to-words": "^2.12",
         "laravel/framework": "^12.0",
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^2.10.1"
