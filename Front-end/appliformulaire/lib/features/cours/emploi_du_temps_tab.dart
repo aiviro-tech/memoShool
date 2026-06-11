@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:appliformulaire/main.dart';
-import 'package:appliformulaire/models/cours_model.dart';
 import 'package:appliformulaire/models/session_utilisateur.dart';
+import 'package:appliformulaire/models/cours_model.dart';
 import 'package:appliformulaire/services/api_service.dart';
-import 'package:appliformulaire/features/cours/detail_cours_page.dart';
+import 'package:appliformulaire/main.dart';
+import 'package:intl/intl.dart';
 
 class EmploiDuTempsTab extends StatefulWidget {
   const EmploiDuTempsTab({super.key});
@@ -14,260 +14,404 @@ class EmploiDuTempsTab extends StatefulWidget {
 
 class _EmploiDuTempsTabState extends State<EmploiDuTempsTab> {
   final _session = SessionUtilisateur();
-  late DateTime _debutSemaine;
-  late Future<Map<String, List<CoursModel>>> _emploiFuture;
+
+  late DateTime _lundiSemaine;
+  late Future<Map<String, List<CoursModel>>> _futureEmploi;
 
   @override
   void initState() {
     super.initState();
     final now = DateTime.now();
-    // Lundi de la semaine courante
-    _debutSemaine = now.subtract(Duration(days: now.weekday - 1));
+    // Lundi de la semaine courante (weekday : 1=lun … 7=dim)
+    _lundiSemaine = now.subtract(Duration(days: now.weekday - 1));
     _charger();
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // CHARGEMENT
+  // ══════════════════════════════════════════════════════════════════════════
+
   void _charger() {
-    _emploiFuture = _fetchEmploi();
+    //  On envoie toujours le lundi de la semaine au format yyyy-MM-dd.
+    // Le backend calcule lui-même startOfWeek / endOfWeek via Carbon,
+    // donc envoyer n'importe quel jour de la semaine fonctionnerait aussi,
+    // mais envoyer le lundi est plus explicite.
+    final semaineStr = DateFormat('yyyy-MM-dd').format(_lundiSemaine);
+    _futureEmploi = _chargerEmploi(semaineStr);
   }
 
-  Future<Map<String, List<CoursModel>>> _fetchEmploi() async {
-    final ecoleId = _session.ecoleId;
-    if (ecoleId == 0) return {};
+  /// Appelle l'endpoint dédié emploi-du-temps et parse la réponse.
+  /// Le backend filtre déjà par rôle (enseignant / étudiant / admin),
+  /// pas besoin de refilter côté Flutter.
+  Future<Map<String, List<CoursModel>>> _chargerEmploi(String semaine) async {
+    final raw = await ApiService.getEmploiDuTemps(
+      _session.ecoleId,
+      semaine: semaine,
+    );
 
-    final semaineStr = '${_debutSemaine.year}-${_debutSemaine.month.toString().padLeft(2, '0')}-${_debutSemaine.day.toString().padLeft(2, '0')}';
-    final response = await ApiService.getEmploiDuTemps(ecoleId, semaine: semaineStr);
+    // ── Parse ──────────────────────────────────────────────────────────────
+    // La réponse Laravel est :
+    // {
+    //   "success": true,
+    //   "semaine_debut": "...",
+    //   "semaine_fin": "...",
+    //   "emploi_du_temps": {
+    //     "2025-01-20": [ { cours... }, ... ],
+    //     "2025-01-21": [ ... ],
+    //   }
+    // }
+    final emploi = raw['emploi_du_temps'];
 
-    final Map<String, List<CoursModel>> result = {};
-    final emploi = response['emploi_du_temps'];
-
-    if (emploi is Map) {
-      for (final entry in emploi.entries) {
-        final date = entry.key.toString();
-        final coursList = entry.value as List? ?? [];
-        result[date] = coursList
-            .map((c) => CoursModel.fromJson(c as Map<String, dynamic>))
-            .toList();
-      }
+    // Réponse vide ou format inattendu → semaine sans cours
+    if (emploi == null || emploi is! Map || emploi.isEmpty) {
+      return {};
     }
+
+    final result = <String, List<CoursModel>>{};
+
+    emploi.forEach((date, list) {
+      if (list is! List || list.isEmpty) return;
+      try {
+        final cours = list
+            .map((e) => CoursModel.fromJson(e as Map<String, dynamic>))
+            .toList();
+        // Tri par heure de début (le backend le fait déjà, mais au cas où)
+        cours.sort((a, b) => a.heureDebut.compareTo(b.heureDebut));
+        result[date as String] = cours;
+      } catch (e) {
+        debugPrint('[EmploiDuTemps] Erreur parsing cours pour $date : $e');
+      }
+    });
 
     return result;
   }
 
-  void _semainePrecedente() {
-    setState(() {
-      _debutSemaine = _debutSemaine.subtract(const Duration(days: 7));
-      _charger();
-    });
+  // ══════════════════════════════════════════════════════════════════════════
+  // NAVIGATION SEMAINE
+  // ══════════════════════════════════════════════════════════════════════════
+
+  void _semainePrec() => setState(() {
+    _lundiSemaine = _lundiSemaine.subtract(const Duration(days: 7));
+    _charger();
+  });
+
+  void _semaineSuiv() => setState(() {
+    _lundiSemaine = _lundiSemaine.add(const Duration(days: 7));
+    _charger();
+  });
+
+  Future<void> _refresh() async => setState(() => _charger());
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // HELPERS
+  // ══════════════════════════════════════════════════════════════════════════
+
+  String _formatDateEntete(String dateStr) {
+    try {
+      final date = DateTime.parse(dateStr);
+      const jours = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+      const mois = [
+        'jan',
+        'fév',
+        'mar',
+        'avr',
+        'mai',
+        'juin',
+        'juil',
+        'août',
+        'sep',
+        'oct',
+        'nov',
+        'déc',
+      ];
+      return '${jours[date.weekday - 1]} ${date.day} ${mois[date.month - 1]}';
+    } catch (_) {
+      return dateStr;
+    }
   }
 
-  void _semaineSuivante() {
-    setState(() {
-      _debutSemaine = _debutSemaine.add(const Duration(days: 7));
-      _charger();
-    });
+  String _labelSemaine() {
+    final dimanche = _lundiSemaine.add(const Duration(days: 6));
+    final fmt = DateFormat('dd/MM');
+    return '${fmt.format(_lundiSemaine)} – ${fmt.format(dimanche)}';
   }
 
-  void _semaineActuelle() {
+  bool _estSemaineCourante() {
     final now = DateTime.now();
-    setState(() {
-      _debutSemaine = now.subtract(Duration(days: now.weekday - 1));
-      _charger();
-    });
+    final lundiCourant = now.subtract(Duration(days: now.weekday - 1));
+    return _lundiSemaine.year == lundiCourant.year &&
+        _lundiSemaine.month == lundiCourant.month &&
+        _lundiSemaine.day == lundiCourant.day;
   }
 
-  String _formatDateCourte(DateTime d) {
-    const mois = [
-      '', 'jan', 'fév', 'mar', 'avr', 'mai', 'jun',
-      'jul', 'aoû', 'sep', 'oct', 'nov', 'déc'
-    ];
-    return '${d.day} ${mois[d.month]}';
+  /// Calcule la durée entre heureDebut et heureFin d'un cours.
+  String _formatDuree(CoursModel cours) {
+    try {
+      final p1 = cours.heureDebut.split(':');
+      final p2 = cours.heureFin.split(':');
+      final debut = Duration(
+        hours: int.parse(p1[0]),
+        minutes: int.parse(p1[1]),
+      );
+      final fin = Duration(hours: int.parse(p2[0]), minutes: int.parse(p2[1]));
+      final diff = fin - debut;
+      final h = diff.inHours;
+      final mn = diff.inMinutes % 60;
+      if (h > 0 && mn > 0) return '${h}h${mn.toString().padLeft(2, '0')}';
+      if (h > 0) return '${h}h';
+      return '${mn}min';
+    } catch (_) {
+      return '';
+    }
   }
+
+  Color _couleurStatut(String statut) {
+    switch (statut) {
+      case 'planifie':
+        return AppColors.primary;
+      case 'en_cours':
+        return Colors.blue.shade600;
+      case 'confirme':
+        return AppColors.green;
+      case 'termine':
+        return Colors.grey.shade500;
+      case 'annule':
+        return AppColors.red;
+      case 'reporte':
+        return AppColors.orange;
+      default:
+        return AppColors.primary;
+    }
+  }
+
+  String _libelleStatut(String statut) {
+    switch (statut) {
+      case 'planifie':
+        return 'Planifié';
+      case 'en_cours':
+        return 'En cours';
+      case 'confirme':
+        return 'Confirmé';
+      case 'annule':
+        return 'Annulé';
+      case 'reporte':
+        return 'Reporté';
+      case 'termine':
+        return 'Terminé';
+      default:
+        return statut;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // BUILD
+  // ══════════════════════════════════════════════════════════════════════════
 
   @override
   Widget build(BuildContext context) {
-    final finSemaine = _debutSemaine.add(const Duration(days: 6));
-
     return Column(
       children: [
-        // ── Navigation semaine ──────────
-        Container(
-          color: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-          child: Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.chevron_left, color: AppColors.primary),
-                onPressed: _semainePrecedente,
-                tooltip: 'Semaine précédente',
-              ),
-              Expanded(
-                child: GestureDetector(
-                  onTap: _semaineActuelle,
-                  child: Column(
-                    children: [
-                      Text(
-                        '${_formatDateCourte(_debutSemaine)} — ${_formatDateCourte(finSemaine)}',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textMain,
-                        ),
-                      ),
-                      Text(
-                        '${_debutSemaine.year}',
-                        style: const TextStyle(fontSize: 12, color: AppColors.textSub),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.chevron_right, color: AppColors.primary),
-                onPressed: _semaineSuivante,
-                tooltip: 'Semaine suivante',
-              ),
-            ],
-          ),
-        ),
-
-        // ── Contenu ─────────────────────
+        _buildNavigationSemaine(),
         Expanded(
-          child: RefreshIndicator(
-            onRefresh: () async => setState(() => _charger()),
-            child: FutureBuilder<Map<String, List<CoursModel>>>(
-              future: _emploiFuture,
-              builder: (context, snap) {
-                if (snap.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (snap.hasError) {
-                  return Center(
+          child: FutureBuilder<Map<String, List<CoursModel>>>(
+            future: _futureEmploi,
+            builder: (context, snap) {
+              // ── Chargement ─────────────────────────────────────────────────
+              if (snap.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              // ── Erreur ─────────────────────────────────────────────────────
+              if (snap.hasError) {
+                final msg = snap.error.toString().replaceAll('Exception: ', '');
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 32),
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        const Icon(Icons.error_outline, size: 48, color: AppColors.red),
+                        const Icon(
+                          Icons.error_outline,
+                          size: 56,
+                          color: AppColors.red,
+                        ),
                         const SizedBox(height: 12),
-                        Text('Erreur: ${snap.error}',
+                        Text(
+                          msg,
                           textAlign: TextAlign.center,
-                          style: const TextStyle(color: AppColors.textSub)),
+                          style: const TextStyle(color: AppColors.red),
+                        ),
                         const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: () => setState(() => _charger()),
-                          child: const Text('Réessayer'),
+                        ElevatedButton.icon(
+                          onPressed: _refresh,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Réessayer'),
+                          style: ElevatedButton.styleFrom(
+                            minimumSize: const Size(double.infinity, 46),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
                         ),
                       ],
                     ),
-                  );
-                }
-
-                final emploi = snap.data ?? {};
-
-                if (emploi.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.event_busy, size: 64,
-                          color: AppColors.primary.withValues(alpha: 0.3)),
-                        const SizedBox(height: 16),
-                        const Text(
-                          'Aucun cours cette semaine',
-                          style: TextStyle(fontSize: 16, color: AppColors.textSub,
-                            fontWeight: FontWeight.w500),
-                        ),
-                        const SizedBox(height: 6),
-                        const Text(
-                          'Naviguez vers une autre semaine',
-                          style: TextStyle(fontSize: 13, color: AppColors.textSub),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-
-                // Trier les dates
-                final dates = emploi.keys.toList()..sort();
-
-                return ListView.builder(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: dates.length,
-                  itemBuilder: (context, i) {
-                    final date = dates[i];
-                    final cours = emploi[date]!;
-                    return _JourEmploi(
-                      date: date,
-                      cours: cours,
-                      ecoleId: _session.ecoleId,
-                      onRefresh: () => setState(() => _charger()),
-                    );
-                  },
+                  ),
                 );
-              },
-            ),
+              }
+
+              final data = snap.data ?? {};
+
+              // ── Aucun cours cette semaine ───────────────────────────────────
+              if (data.isEmpty) {
+                return RefreshIndicator(
+                  onRefresh: _refresh,
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    child: SizedBox(
+                      height: 400,
+                      child: Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 32),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.calendar_today_outlined,
+                                size: 72,
+                                color: Colors.grey.shade300,
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                _session.estEtudiant
+                                    ? 'Aucun cours cette semaine.\n\nVérifiez que votre inscription est validée.'
+                                    : _session.estEnseignant
+                                    ? 'Aucun cours assigné cette semaine.'
+                                    : 'Aucun cours planifié cette semaine.',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: AppColors.textSub,
+                                  fontSize: 15,
+                                  height: 1.6,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }
+
+              // ── Liste des jours ────────────────────────────────────────────
+              final dates = data.keys.toList()..sort();
+
+              return RefreshIndicator(
+                onRefresh: _refresh,
+                child: ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
+                  itemCount: dates.length,
+                  itemBuilder: (_, i) {
+                    final date = dates[i];
+                    final coursDuJour = data[date]!;
+                    return _buildJour(date, coursDuJour);
+                  },
+                ),
+              );
+            },
           ),
         ),
       ],
     );
   }
-}
 
-// ═══════════════════════════════════════════════
-// JOUR AVEC SES COURS
-// ═══════════════════════════════════════════════
-class _JourEmploi extends StatelessWidget {
-  final String date;
-  final List<CoursModel> cours;
-  final int ecoleId;
-  final VoidCallback onRefresh;
+  // ══════════════════════════════════════════════════════════════════════════
+  // WIDGETS
+  // ══════════════════════════════════════════════════════════════════════════
 
-  const _JourEmploi({
-    required this.date,
-    required this.cours,
-    required this.ecoleId,
-    required this.onRefresh,
-  });
-
-  String get _jourLabel {
-    try {
-      final d = DateTime.parse(date);
-      const jours = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
-      const mois = [
-        '', 'janvier', 'février', 'mars', 'avril', 'mai', 'juin',
-        'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'
-      ];
-      return '${jours[d.weekday - 1]} ${d.day} ${mois[d.month]}';
-    } catch (_) {
-      return date;
-    }
+  Widget _buildNavigationSemaine() {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.chevron_left),
+            onPressed: _semainePrec,
+            color: AppColors.primary,
+            tooltip: 'Semaine précédente',
+          ),
+          Expanded(
+            child: Column(
+              children: [
+                Text(
+                  _labelSemaine(),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                    color: AppColors.textMain,
+                  ),
+                ),
+                if (_estSemaineCourante()) ...[
+                  const SizedBox(height: 2),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 1,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Text(
+                      'Semaine actuelle',
+                      style: TextStyle(fontSize: 11, color: AppColors.primary),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.chevron_right),
+            onPressed: _semaineSuiv,
+            color: AppColors.primary,
+            tooltip: 'Semaine suivante',
+          ),
+        ],
+      ),
+    );
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildJour(String date, List<CoursModel> cours) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // En-tête du jour
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          margin: const EdgeInsets.only(bottom: 8),
-          decoration: BoxDecoration(
-            color: AppColors.primary.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(10),
-          ),
+        Padding(
+          padding: const EdgeInsets.only(top: 16, bottom: 8),
           child: Row(
             children: [
-              const Icon(Icons.calendar_today, color: AppColors.primary, size: 16),
-              const SizedBox(width: 8),
-              Text(
-                _jourLabel,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
                   color: AppColors.primary,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  _formatDateEntete(date),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
               Text(
                 '${cours.length} cours',
                 style: const TextStyle(fontSize: 12, color: AppColors.textSub),
@@ -275,133 +419,196 @@ class _JourEmploi extends StatelessWidget {
             ],
           ),
         ),
-        // Créneaux
-        ...cours.map((c) => _CreneauCours(
-          cours: c,
-          ecoleId: ecoleId,
-          onRefresh: onRefresh,
-        )),
-        const SizedBox(height: 16),
+        ...cours.map((c) => _buildCarteCours(c)),
       ],
     );
   }
-}
 
-// ═══════════════════════════════════════════════
-// CRÉNEAU INDIVIDUEL
-// ═══════════════════════════════════════════════
-class _CreneauCours extends StatelessWidget {
-  final CoursModel cours;
-  final int ecoleId;
-  final VoidCallback onRefresh;
+  Widget _buildCarteCours(CoursModel cours) {
+    final couleur = _couleurStatut(cours.statut);
+    final duree = _formatDuree(cours);
 
-  const _CreneauCours({
-    required this.cours,
-    required this.ecoleId,
-    required this.onRefresh,
-  });
-
-  Color get _couleur {
-    switch (cours.statut) {
-      case 'confirme': return AppColors.green;
-      case 'reporte': return AppColors.orange;
-      case 'termine': return Colors.grey;
-      default: return AppColors.primary;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => DetailCoursPage(cours: cours, ecoleId: ecoleId),
-        ),
-      ).then((_) => onRefresh()),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8, left: 8),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: _couleur.withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(12),
-          border: Border(
-            left: BorderSide(color: _couleur, width: 3),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border(left: BorderSide(color: couleur, width: 4)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
           ),
-        ),
-        child: Row(
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Horaire
-            Column(
+            // ── Ligne 1 : ECUE + badge statut ──────────────────────────
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  cours.heureDebut,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: _couleur,
+                Expanded(
+                  child: Text(
+                    cours.ecue,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: AppColors.textMain,
+                    ),
                   ),
                 ),
-                Container(
-                  width: 1,
-                  height: 12,
-                  color: _couleur.withValues(alpha: 0.3),
+                //  Badge visible pour admin ET enseignant
+                if (_session.estAdmin || _session.estEnseignant)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: couleur.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      _libelleStatut(cours.statut),
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: couleur,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 6),
+
+            // ── Ligne 2 : Heure début → fin + durée ────────────────────
+            Row(
+              children: [
+                const Icon(
+                  Icons.access_time_outlined,
+                  size: 13,
+                  color: AppColors.textSub,
                 ),
-                Text(
-                  cours.heureFin,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: _couleur.withValues(alpha: 0.7),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    duree.isNotEmpty
+                        ? '${cours.heureDebut} – ${cours.heureFin}  ($duree)'
+                        : '${cours.heureDebut} – ${cours.heureFin}',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textMain,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
             ),
-            const SizedBox(width: 14),
-            // Infos
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    cours.ecue,
+            const SizedBox(height: 4),
+
+            // ── Ligne 3 : Salle ─────────────────────────────────────────
+            Row(
+              children: [
+                const Icon(
+                  Icons.location_on_outlined,
+                  size: 13,
+                  color: AppColors.textSub,
+                ),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    cours.salle.isNotEmpty ? cours.salle : '—',
                     style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textMain,
+                      fontSize: 13,
+                      color: AppColors.textSub,
                     ),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      const Icon(Icons.person_outline, size: 13, color: AppColors.textSub),
-                      const SizedBox(width: 3),
-                      Flexible(
-                        child: Text(
-                          cours.enseignant,
-                          style: const TextStyle(fontSize: 12, color: AppColors.textSub),
-                          overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+
+            // ── Ligne 4 : Enseignant ────────────────────────────────────
+            Row(
+              children: [
+                const Icon(
+                  Icons.person_outline,
+                  size: 13,
+                  color: AppColors.textSub,
+                ),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    cours.enseignant.isNotEmpty ? cours.enseignant : '—',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: AppColors.textSub,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+
+            // ── Ligne 5 : Classe + filière ──────────────────────────────
+            Row(
+              children: [
+                const Icon(
+                  Icons.school_outlined,
+                  size: 13,
+                  color: AppColors.textSub,
+                ),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    '${cours.classe} • ${cours.filiere}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSub,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+
+            // ── Motif annulation ────────────────────────────────────────
+            if (cours.statut == 'annule' && cours.motifAnnulation != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.red.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.info_outline,
+                      color: AppColors.red,
+                      size: 13,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        cours.motifAnnulation!,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.red,
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      const Icon(Icons.location_on_outlined, size: 13, color: AppColors.textSub),
-                      const SizedBox(width: 3),
-                      Text(cours.salle,
-                        style: const TextStyle(fontSize: 12, color: AppColors.textSub)),
-                      const Spacer(),
-                      const Icon(Icons.school_outlined, size: 13, color: AppColors.textSub),
-                      const SizedBox(width: 3),
-                      Text(cours.classe,
-                        style: const TextStyle(fontSize: 12, color: AppColors.textSub)),
-                    ],
-                  ),
-                ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const Icon(Icons.chevron_right, color: AppColors.textSub, size: 18),
+            ],
           ],
         ),
       ),

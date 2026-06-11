@@ -7,6 +7,7 @@ use App\Models\SupportCours;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class SupportCoursController extends Controller
 {
@@ -154,7 +155,6 @@ class SupportCoursController extends Controller
             'message' => 'Support validé avec succès.',
             'data'    => $support->fresh(['cours.ecue.ue', 'enseignant', 'validateur']),
         ]);
-
     }
 
     /**
@@ -231,10 +231,32 @@ class SupportCoursController extends Controller
      * Telecharger un support de cours.
      * Admin/Enseignant : tous les supports
      * Etudiant : uniquement les supports valides
+     * 
+     * ✅ CORRECTION : Accepte le token en paramètre GET (?token=xxx) pour mobile
      */
     public function download(Request $request, int $ecole_id, int $id)
     {
+        // ✅ CORRECTION : Vérifier le token passé en paramètre GET (pour mobile)
+        if ($request->has('token')) {
+            $token = $request->query('token');
+            $accessToken = PersonalAccessToken::findToken($token);
+            if ($accessToken) {
+                $user = $accessToken->tokenable;
+                if ($user) {
+                    $request->setUserResolver(fn () => $user);
+                }
+            }
+        }
+        
         $user = $request->user();
+        
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Non authentifié.',
+            ], 401);
+        }
+        
         $support = SupportCours::where('ecole_id', $ecole_id)->findOrFail($id);
 
         // Un etudiant ne peut telecharger que les supports valides de sa classe

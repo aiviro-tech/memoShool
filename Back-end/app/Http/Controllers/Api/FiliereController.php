@@ -4,13 +4,14 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Filiere;
-use App\Models\Ecole;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class FiliereController extends Controller
 {
-    // Lister toutes les filières d'une école
+    /**
+     * Lister toutes les filières d'une école
+     */
     public function index(int $ecole_id): JsonResponse
     {
         $filieres = Filiere::where('ecole_id', $ecole_id)
@@ -23,18 +24,24 @@ class FiliereController extends Controller
         ]);
     }
 
-    // Créer une filière
+    /**
+     * Créer une filière
+     * ✅ CORRECTION : Validation unique avec ecole_id
+     */
     public function store(Request $request, int $ecole_id): JsonResponse
     {
         $validated = $request->validate([
             'nom'         => 'required|string|max:100',
-            'code'        => 'required|string|max:10|unique:filieres,code',
+            'code'        => 'required|string|max:10|unique:filieres,code,NULL,id,ecole_id,' . $ecole_id,
             'description' => 'nullable|string',
         ]);
 
         $filiere = Filiere::create([
-            ...$validated,
-            'ecole_id' => $ecole_id,
+            'nom'         => $validated['nom'],
+            'code'        => strtoupper($validated['code']),
+            'description' => $validated['description'] ?? null,
+            'ecole_id'    => $ecole_id,
+            'actif'       => true,
         ]);
 
         return response()->json([
@@ -44,17 +51,23 @@ class FiliereController extends Controller
         ], 201);
     }
 
-    // Modifier une filière
+    /**
+     * Modifier une filière
+     */
     public function update(Request $request, int $ecole_id, int $id): JsonResponse
     {
         $filiere = Filiere::where('ecole_id', $ecole_id)->findOrFail($id);
 
         $validated = $request->validate([
             'nom'         => 'sometimes|string|max:100',
-            'code'        => "sometimes|string|max:10|unique:filieres,code,{$id}",
+            'code'        => "sometimes|string|max:10|unique:filieres,code,{$id},id,ecole_id,{$ecole_id}",
             'description' => 'nullable|string',
             'actif'       => 'sometimes|boolean',
         ]);
+
+        if (isset($validated['code'])) {
+            $validated['code'] = strtoupper($validated['code']);
+        }
 
         $filiere->update($validated);
 
@@ -65,7 +78,9 @@ class FiliereController extends Controller
         ]);
     }
 
-    // Supprimer une filière
+    /**
+     * Désactiver une filière
+     */
     public function destroy(int $ecole_id, int $id): JsonResponse
     {
         $filiere = Filiere::where('ecole_id', $ecole_id)->findOrFail($id);

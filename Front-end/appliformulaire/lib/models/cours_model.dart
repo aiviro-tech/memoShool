@@ -1,99 +1,86 @@
 class CoursModel {
   final int id;
+  final int ecoleId;
+  final int classeId;
+  final int enseignantId;
+  final int ecueCredits;
   final String ecue;
   final String ecueCode;
-  final int ecueCredits;
-  final String enseignant;
-  final int enseignantId;
-  final String salle;
-  final String salleCode;
-  final String classe;
-  final String filiere;
   final String dateCours;
   final String heureDebut;
   final String heureFin;
-  final String statut;
+  final String salle;
+  final String salleCode;
+  final String enseignant;
+  final String classe;
+  final String filiere;
   final String semestre;
   final String anneeAcademique;
-  final String? notes;
+  final String statut;
   final String? motifAnnulation;
+  final String? notes;
 
   CoursModel({
     required this.id,
+    required this.ecoleId,
+    required this.classeId,
+    required this.enseignantId,
+    required this.ecueCredits,
     required this.ecue,
     required this.ecueCode,
-    required this.ecueCredits,
-    required this.enseignant,
-    required this.enseignantId,
-    required this.salle,
-    required this.salleCode,
-    required this.classe,
-    required this.filiere,
     required this.dateCours,
     required this.heureDebut,
     required this.heureFin,
-    required this.statut,
+    required this.salle,
+    required this.salleCode,
+    required this.enseignant,
+    required this.classe,
+    required this.filiere,
     required this.semestre,
     required this.anneeAcademique,
-    this.notes,
+    required this.statut,
     this.motifAnnulation,
+    this.notes,
   });
 
   factory CoursModel.fromJson(Map<String, dynamic> json) {
-    final ecueJson = (json['ecue']       ?? {}) as Map<String, dynamic>;
-    final ens      = (json['enseignant'] ?? {}) as Map<String, dynamic>;
-    final sal      = (json['salle']      ?? {}) as Map<String, dynamic>;
-    final cls      = (json['classe']     ?? {}) as Map<String, dynamic>;
-    final fil      = (cls['filiere']     ?? {}) as Map<String, dynamic>;
+    final ecueData = json['ecue'] as Map<String, dynamic>? ?? {};
+    final enseignantData = json['enseignant'] as Map<String, dynamic>? ?? {};
+    final salleData = json['salle'] as Map<String, dynamic>? ?? {};
+    final classeData = json['classe'] as Map<String, dynamic>? ?? {};
+    final filiereData = classeData['filiere'] as Map<String, dynamic>? ?? {};
+    final semestreData = json['semestre'] as Map<String, dynamic>? ?? {};
 
     return CoursModel(
-      id:              json['id'] ?? 0,
-      ecue:            ecueJson['nom'] ?? '',
-      ecueCode:        ecueJson['code'] ?? '',
-      ecueCredits:     ecueJson['credits'] ?? 0,
-      enseignant:      ens['full_name'] ?? '',
-      enseignantId:    ens['id'] ?? 0,
-      salle:           sal['nom'] ?? '',
-      salleCode:       sal['code'] ?? '',
-      classe:          cls['nom'] ?? '',
-      filiere:         fil['nom'] ?? '',
-      dateCours:       json['date_cours'] ?? '',
-      heureDebut:      json['heure_debut'] ?? '',
-      heureFin:        json['heure_fin'] ?? '',
-      statut:          json['statut'] ?? 'planifie',
-      semestre:        (json['semestre'] is Map) ? (json['semestre']['nom'] ?? '') : (json['semestre'] ?? ''),
-      anneeAcademique: json['annee_academique'] ?? '',
-      notes:           json['notes'],
-      motifAnnulation: json['motif_annulation'],
+      id: json['id'] as int? ?? 0,
+      ecoleId: json['ecole_id'] as int? ?? 0,
+      classeId: json['classe_id'] as int? ?? classeData['id'] as int? ?? 0,
+      enseignantId: json['enseignant_id'] as int? ?? 0,
+      ecueCredits: ecueData['credits'] as int? ?? 0,
+      ecue: ecueData['nom'] ?? '',
+      ecueCode: ecueData['code'] ?? '',
+      dateCours: json['date_cours'] ?? '',
+      heureDebut: json['heure_debut'] ?? '',
+      heureFin: json['heure_fin'] ?? '',
+      salle: salleData['nom'] ?? '',
+      salleCode: salleData['code'] ?? '',
+      enseignant: enseignantData['full_name'] ?? '',
+      classe: classeData['nom'] ?? '',
+      filiere: filiereData['nom'] ?? '',
+      semestre: semestreData['numero']?.toString() ?? '',
+      anneeAcademique: semestreData['annee_academique'] ?? '',
+      statut: json['statut'] ?? 'planifie',
+      motifAnnulation: json['motif_annulation'] as String?,
+      notes: json['notes'] as String?,
     );
   }
 
-  String get jourSemaine {
-    if (dateCours.isEmpty) return '';
-    try {
-      final d = DateTime.parse(dateCours);
-      const j = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche'];
-      return j[d.weekday - 1];
-    } catch (_) {
-      return '';
-    }
-  }
-
   String get dateFormatee {
-    if (dateCours.isEmpty) return '';
-    try {
-      final d = DateTime.parse(dateCours);
-      const m = [
-        '', 'janvier','février','mars','avril','mai','juin',
-        'juillet','août','septembre','octobre','novembre','décembre'
-      ];
-      return '$jourSemaine ${d.day} ${m[d.month]} ${d.year}';
-    } catch (_) {
-      return dateCours;
-    }
+    if (dateCours.length >= 10) return dateCours.substring(0, 10);
+    return dateCours;
   }
 
-  String get horaireFormate => '$heureDebut - $heureFin';
-
-  bool get estActif => statut != 'annule';
+  String get horaireFormate {
+    return '$heureDebut - $heureFin';
+  }
 }

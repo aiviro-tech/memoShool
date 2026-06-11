@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Models\Paiement;
-use App\Models\Inscription;
 use FedaPay\FedaPay;
 use FedaPay\Transaction;
 
@@ -26,25 +25,23 @@ class FedaPayService
         string $email
     ): array {
         $transaction = Transaction::create([
-            'description' => "Paiement scolarité — {$nom} {$prenom}",
-            'amount'      => (int) $paiement->montant,
-            'currency'    => ['iso' => 'XOF'],
+            'description'  => "Paiement scolarité — {$nom} {$prenom}",
+            'amount'       => (int) $paiement->montant,
+            'currency'     => ['iso' => 'XOF'],
             'callback_url' => config('app.url') . '/api/paiements/webhook',
-            'customer'    => [
-                'firstname' => $prenom,
-                'lastname'  => $nom,
-                'email'     => $email,
+            'customer'     => [
+                'firstname'    => $prenom,
+                'lastname'     => $nom,
+                'email'        => $email,
                 'phone_number' => [
-                    'number'   => $telephone,
-                    'country'  => 'BJ',
+                    'number'  => $telephone,
+                    'country' => 'BJ',
                 ],
             ],
         ]);
 
-        // Générer le token de paiement
         $token = $transaction->generateToken();
 
-        // Mettre à jour le paiement avec les infos FedaPay
         $paiement->update([
             'fedapay_transaction_id' => $transaction->id,
             'fedapay_token'          => $token->token,
@@ -73,21 +70,54 @@ class FedaPayService
 
     /**
      * Traiter le webhook FedaPay.
+     *
+     * CORRECTION : ajout des notifications automatiques
+     * - Paiement approuvé → notification à l'étudiant
+     * - Paiement échoué   → notification à l'étudiant
      */
     public function traiterWebhook(array $payload): void
     {
-        $transactionId = $payload['entity']['id'] ?? null;
+        $transactionId = $payload['entity']['id']     ?? null;
         $statut        = $payload['entity']['status'] ?? null;
 
         if (!$transactionId || !$statut) return;
 
-        $paiement = Paiement::where('fedapay_transaction_id', $transactionId)->first();
+        $paiement = Paiement::where('fedapay_transaction_id', $transactionId)
+                            ->with('inscription.classe.filiere.ecole')
+                            ->first();
 
         if (!$paiement) return;
+
+        $ancienStatut = $paiement->statut;
 
         $paiement->update([
             'statut'        => $statut,
             'date_paiement' => $statut === 'approved' ? now() : null,
         ]);
+
+        // Envoyer une notification uniquement si le statut vient de changer
+        if ($ancienStatut === $statut) return;
+
+        $notificationService = new NotificationService();
+        $ecoleId = $paiement->inscription?->classe?->filiere?->ecole?->id;
+
+        if (!$ecoleId) return;
+
+        if ($statut === 'approved') {
+            // Paiement approuvé → notifier l'étudiant
+            $notificationService->notifierPaiementApprouve(
+                $paiement->etudiant_id,
+                $ecoleId,
+                (float) $paiement->montant,
+                $paiement->numero_recu ?? ''
+            );
+        } elseif (in_array($statut, ['canceled', 'declined', 'failed'])) {
+            // Paiement échoué → notifier l'étudiant
+            $notificationService->notifierPaiementEchoue(
+                $paiement->etudiant_id,
+                $ecoleId,
+                (float) $paiement->montant
+            );
+        }
     }
 }

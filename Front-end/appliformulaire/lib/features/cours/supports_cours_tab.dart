@@ -1,8 +1,13 @@
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:appliformulaire/main.dart';
+import 'package:dio/dio.dart';
+import 'package:appliformulaire/main.dart' as app;
 import 'package:appliformulaire/models/session_utilisateur.dart';
 import 'package:appliformulaire/services/api_service.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class SupportsCoursTab extends StatefulWidget {
@@ -39,9 +44,7 @@ class _SupportsCoursTabState extends State<SupportsCoursTab> {
     return supports.where((s) => s['statut'] == _filtreStatut).toList();
   }
 
-  // ── Enseignant dépose un support ──
   Future<void> _deposerSupport() async {
-    // D'abord charger la liste des cours de l'enseignant
     List<dynamic> coursList = [];
     try {
       final response = await ApiService.getCours(_session.ecoleId);
@@ -49,7 +52,7 @@ class _SupportsCoursTabState extends State<SupportsCoursTab> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur chargement cours: $e'), backgroundColor: AppColors.red),
+          SnackBar(content: Text('Erreur chargement cours: $e'), backgroundColor: app.AppColors.red),
         );
       }
       return;
@@ -58,7 +61,7 @@ class _SupportsCoursTabState extends State<SupportsCoursTab> {
     if (coursList.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Aucun cours disponible pour deposer un support'), backgroundColor: AppColors.orange),
+          const SnackBar(content: Text('Aucun cours disponible pour déposer un support'), backgroundColor: app.AppColors.orange),
         );
       }
       return;
@@ -66,159 +69,59 @@ class _SupportsCoursTabState extends State<SupportsCoursTab> {
 
     if (!mounted) return;
 
-    // Dialog de dépôt
-    final titreCtrl = TextEditingController();
-    final descCtrl = TextEditingController();
-    int? coursId;
-    String? fichierPath;
-    String? fichierNom;
-
-    final result = await showDialog<bool>(
+    final resultat = await showDialog<_ResultatDepot>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Text('Deposer un support de cours', style: TextStyle(fontSize: 17)),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Sélection du cours
-                DropdownButtonFormField<int>(
-                  isExpanded: true,
-                  decoration: InputDecoration(
-                    labelText: 'Cours *',
-                    prefixIcon: const Icon(Icons.menu_book, size: 18),
-                    filled: true, fillColor: AppColors.background,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                  items: coursList.map((c) {
-                    final ecue = c['ecue'] ?? {};
-                    return DropdownMenuItem<int>(
-                      value: c['id'] as int,
-                      child: Text('${ecue['nom'] ?? ''} - ${c['date_cours'] ?? ''}',
-                        style: const TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis),
-                    );
-                  }).toList(),
-                  onChanged: (v) => coursId = v,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: titreCtrl,
-                  decoration: InputDecoration(
-                    labelText: 'Titre du support *',
-                    prefixIcon: const Icon(Icons.title, size: 18),
-                    filled: true, fillColor: AppColors.background,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: descCtrl,
-                  maxLines: 2,
-                  decoration: InputDecoration(
-                    labelText: 'Description (optionnel)',
-                    prefixIcon: const Icon(Icons.description, size: 18),
-                    filled: true, fillColor: AppColors.background,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                // Bouton fichier
-                OutlinedButton.icon(
-                  onPressed: () async {
-                    final picked = await FilePicker.platform.pickFiles(
-                      type: FileType.custom,
-                      allowedExtensions: ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'jpg', 'png', 'zip'],
-                    );
-                    if (picked != null && picked.files.isNotEmpty) {
-                      setDialogState(() {
-                        fichierPath = picked.files.single.path;
-                        fichierNom = picked.files.single.name;
-                      });
-                    }
-                  },
-                  icon: const Icon(Icons.upload_file),
-                  label: Text(fichierNom ?? 'Choisir un fichier *'),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 48),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                ),
-                if (fichierNom != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Text(fichierNom!, style: const TextStyle(fontSize: 12, color: AppColors.green)),
-                  ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Annuler', style: TextStyle(color: AppColors.textSub)),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-              child: const Text('Deposer'),
-            ),
-          ],
-        ),
-      ),
+      barrierDismissible: false,
+      builder: (_) => _SimpleDeposerSupportDialog(coursList: coursList),
     );
 
-    if (result != true || !mounted) return;
-
-    if (coursId == null || titreCtrl.text.isEmpty || fichierPath == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez remplir tous les champs obligatoires'), backgroundColor: AppColors.orange),
-      );
-      return;
-    }
+    if (resultat == null || !mounted) return;
 
     try {
       await ApiService.deposerSupport(
         _session.ecoleId,
-        {'cours_id': coursId, 'titre': titreCtrl.text.trim(), 'description': descCtrl.text.trim()},
-        fichierPath!,
-        fichierNom!,
+        {
+          'cours_id': resultat.coursId,
+          'titre': resultat.titre,
+          'description': resultat.description,
+        },
+        resultat.fichierNom,
+        fichierPath: resultat.fichierPath,
+        fichierBytes: resultat.fichierBytes,
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Support depose ! En attente de validation par l\'administration.'), backgroundColor: AppColors.green),
+          const SnackBar(content: Text('Support déposé ! En attente de validation.'), backgroundColor: app.AppColors.green),
         );
         setState(() => _charger());
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString()), backgroundColor: AppColors.red),
+          SnackBar(content: Text(e.toString()), backgroundColor: app.AppColors.red),
         );
       }
     }
   }
 
-  // ── Admin valide un support ──
   Future<void> _validerSupport(int supportId) async {
     try {
       await ApiService.validerSupport(_session.ecoleId, supportId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Support valide avec succes'), backgroundColor: AppColors.green),
+          const SnackBar(content: Text('Support validé avec succès'), backgroundColor: app.AppColors.green),
         );
         setState(() => _charger());
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString()), backgroundColor: AppColors.red),
+          SnackBar(content: Text(e.toString()), backgroundColor: app.AppColors.red),
         );
       }
     }
   }
 
-  // ── Admin rejette un support ──
   Future<void> _rejeterSupport(int supportId) async {
     final motifCtrl = TextEditingController();
     final motif = await showDialog<String>(
@@ -230,16 +133,17 @@ class _SupportsCoursTabState extends State<SupportsCoursTab> {
           controller: motifCtrl,
           maxLines: 3,
           decoration: InputDecoration(
-            hintText: 'Expliquez pourquoi ce support est rejete...',
-            filled: true, fillColor: AppColors.background,
+            hintText: 'Expliquez pourquoi ce support est rejeté...',
+            filled: true,
+            fillColor: app.AppColors.background,
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
           ),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
           ElevatedButton(
-            onPressed: () => Navigator.pop(context, motifCtrl.text.trim().isNotEmpty ? motifCtrl.text.trim() : 'Rejete par l\'administrateur'),
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.red),
+            onPressed: () => Navigator.pop(context, motifCtrl.text.trim().isNotEmpty ? motifCtrl.text.trim() : 'Rejeté'),
+            style: ElevatedButton.styleFrom(backgroundColor: app.AppColors.red),
             child: const Text('Rejeter'),
           ),
         ],
@@ -251,14 +155,14 @@ class _SupportsCoursTabState extends State<SupportsCoursTab> {
       await ApiService.rejeterSupport(_session.ecoleId, supportId, motif);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Support rejete'), backgroundColor: AppColors.orange),
+          const SnackBar(content: Text('Support rejeté'), backgroundColor: app.AppColors.orange),
         );
         setState(() => _charger());
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString()), backgroundColor: AppColors.red),
+          SnackBar(content: Text(e.toString()), backgroundColor: app.AppColors.red),
         );
       }
     }
@@ -275,7 +179,7 @@ class _SupportsCoursTabState extends State<SupportsCoursTab> {
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.red),
+            style: ElevatedButton.styleFrom(backgroundColor: app.AppColors.red),
             child: const Text('Supprimer'),
           ),
         ],
@@ -286,38 +190,54 @@ class _SupportsCoursTabState extends State<SupportsCoursTab> {
       await ApiService.supprimerSupport(_session.ecoleId, supportId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Support supprime'), backgroundColor: AppColors.green),
+          const SnackBar(content: Text('Support supprimé'), backgroundColor: app.AppColors.green),
         );
         setState(() => _charger());
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString()), backgroundColor: AppColors.red),
+          SnackBar(content: Text(e.toString()), backgroundColor: app.AppColors.red),
         );
       }
     }
   }
 
-  // ── Télécharger un support ──
   Future<void> _telechargerSupport(Map<String, dynamic> support) async {
     try {
       final url = ApiService.getDownloadUrl(_session.ecoleId, support['id'] as int);
       final token = SessionUtilisateur().token;
       final uri = Uri.parse('$url?token=$token');
+      
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
       } else {
+        final response = await ApiService.dio.get(
+          url,
+          options: Options(
+            responseType: ResponseType.bytes,
+            headers: {'Authorization': 'Bearer $token'},
+          ),
+        );
+        
+        final bytes = response.data as List<int>;
+        final directory = await getTemporaryDirectory();
+        final fileName = support['fichier_nom'] ?? 'support_${support['id']}.pdf';
+        final file = File('${directory.path}/$fileName');
+        await file.writeAsBytes(bytes);
+        
+        await Share.shareXFiles([XFile(file.path)]);
+        
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Impossible d\'ouvrir le lien de telechargement'), backgroundColor: AppColors.red),
+            const SnackBar(content: Text('Fichier téléchargé avec succès'), backgroundColor: app.AppColors.green),
           );
         }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: ${e.toString()}'), backgroundColor: AppColors.red),
+          SnackBar(content: Text('Erreur: ${e.toString()}'), backgroundColor: app.AppColors.red),
         );
       }
     }
@@ -333,20 +253,19 @@ class _SupportsCoursTabState extends State<SupportsCoursTab> {
       children: [
         Column(
           children: [
-            // ── Filtres (admin et enseignant seulement) ──
             if (isAdmin || isEnseignant)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 color: Colors.white,
                 child: Row(
                   children: [
-                    const Icon(Icons.filter_list, size: 18, color: AppColors.textSub),
+                    const Icon(Icons.filter_list, size: 18, color: app.AppColors.textSub),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10),
                         decoration: BoxDecoration(
-                          color: AppColors.background,
+                          color: app.AppColors.background,
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
                         ),
@@ -354,12 +273,12 @@ class _SupportsCoursTabState extends State<SupportsCoursTab> {
                           child: DropdownButton<String>(
                             value: _filtreStatut,
                             isExpanded: true,
-                            style: const TextStyle(fontSize: 13, color: AppColors.textMain),
+                            style: const TextStyle(fontSize: 13, color: app.AppColors.textMain),
                             items: const [
                               DropdownMenuItem(value: 'tous', child: Text('Tous les supports')),
                               DropdownMenuItem(value: 'en_attente', child: Text('En attente')),
-                              DropdownMenuItem(value: 'valide', child: Text('Valides')),
-                              DropdownMenuItem(value: 'rejete', child: Text('Rejetes')),
+                              DropdownMenuItem(value: 'valide', child: Text('Validés')),
+                              DropdownMenuItem(value: 'rejete', child: Text('Rejetés')),
                             ],
                             onChanged: (v) => setState(() => _filtreStatut = v!),
                           ),
@@ -369,7 +288,6 @@ class _SupportsCoursTabState extends State<SupportsCoursTab> {
                   ],
                 ),
               ),
-            // ── Liste ──
             Expanded(
               child: RefreshIndicator(
                 onRefresh: () async => setState(() => _charger()),
@@ -384,11 +302,11 @@ class _SupportsCoursTabState extends State<SupportsCoursTab> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Icon(Icons.error_outline, size: 48, color: AppColors.red),
+                            const Icon(Icons.error_outline, size: 48, color: app.AppColors.red),
                             const SizedBox(height: 12),
                             Text('Erreur: ${snap.error}', textAlign: TextAlign.center),
                             const SizedBox(height: 16),
-                            ElevatedButton(onPressed: () => setState(() => _charger()), child: const Text('Reessayer')),
+                            ElevatedButton(onPressed: () => setState(() => _charger()), child: const Text('Réessayer')),
                           ],
                         ),
                       );
@@ -400,18 +318,15 @@ class _SupportsCoursTabState extends State<SupportsCoursTab> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.folder_open, size: 64, color: AppColors.primary.withValues(alpha: 0.3)),
+                            Icon(Icons.folder_open, size: 64, color: app.AppColors.primary.withValues(alpha: 0.3)),
                             const SizedBox(height: 16),
-                            const Text('Aucun support de cours',
-                              style: TextStyle(fontSize: 16, color: AppColors.textSub, fontWeight: FontWeight.w500)),
+                            const Text('Aucun support de cours', style: TextStyle(fontSize: 16, color: app.AppColors.textSub, fontWeight: FontWeight.w500)),
                             const SizedBox(height: 6),
                             Text(
-                              isEnseignant
-                                ? 'Deposez votre premier support avec le bouton +'
-                                : isEtudiant
-                                  ? 'Aucun support disponible pour le moment'
+                              isEnseignant ? 'Déposez votre premier support avec le bouton +'
+                                  : isEtudiant ? 'Aucun support disponible pour le moment'
                                   : 'Aucun support disponible',
-                              style: const TextStyle(fontSize: 13, color: AppColors.textSub),
+                              style: const TextStyle(fontSize: 13, color: app.AppColors.textSub),
                             ),
                           ],
                         ),
@@ -428,14 +343,10 @@ class _SupportsCoursTabState extends State<SupportsCoursTab> {
                           isAdmin: isAdmin,
                           isEnseignant: isEnseignant,
                           isEtudiant: isEtudiant,
-                          onValider: isAdmin && s['statut'] == 'en_attente'
-                            ? () => _validerSupport(s['id'] as int) : null,
-                          onRejeter: isAdmin && s['statut'] == 'en_attente'
-                            ? () => _rejeterSupport(s['id'] as int) : null,
-                          onSupprimer: (isAdmin || (isEnseignant && s['enseignant_id'] == _session.id))
-                            ? () => _supprimerSupport(s['id'] as int) : null,
-                          onTelecharger: (s['statut'] == 'valide' || isAdmin || (isEnseignant && s['enseignant_id'] == _session.id))
-                            ? () => _telechargerSupport(s) : null,
+                          onValider: isAdmin && s['statut'] == 'en_attente' ? () => _validerSupport(s['id'] as int) : null,
+                          onRejeter: isAdmin && s['statut'] == 'en_attente' ? () => _rejeterSupport(s['id'] as int) : null,
+                          onSupprimer: (isAdmin || (isEnseignant && s['enseignant_id'] == _session.id)) ? () => _supprimerSupport(s['id'] as int) : null,
+                          onTelecharger: (s['statut'] == 'valide' || isAdmin || (isEnseignant && s['enseignant_id'] == _session.id)) ? () => _telechargerSupport(s) : null,
                         );
                       },
                     );
@@ -445,7 +356,6 @@ class _SupportsCoursTabState extends State<SupportsCoursTab> {
             ),
           ],
         ),
-        // ── FAB Enseignant seulement ──
         if (isEnseignant)
           Positioned(
             right: 20,
@@ -454,7 +364,7 @@ class _SupportsCoursTabState extends State<SupportsCoursTab> {
               onPressed: _deposerSupport,
               backgroundColor: const Color(0xFF2E7D32),
               icon: const Icon(Icons.upload_file, color: Colors.white),
-              label: const Text('Deposer', style: TextStyle(color: Colors.white)),
+              label: const Text('Déposer', style: TextStyle(color: Colors.white)),
             ),
           ),
       ],
@@ -462,9 +372,196 @@ class _SupportsCoursTabState extends State<SupportsCoursTab> {
   }
 }
 
-// ═══════════════════════════════════════════
-// CARTE SUPPORT
-// ═══════════════════════════════════════════
+class _ResultatDepot {
+  final int coursId;
+  final String titre;
+  final String description;
+  final String? fichierPath;
+  final Uint8List? fichierBytes;
+  final String fichierNom;
+
+  const _ResultatDepot({
+    required this.coursId,
+    required this.titre,
+    required this.description,
+    this.fichierPath,
+    this.fichierBytes,
+    required this.fichierNom,
+  });
+}
+
+class _SimpleDeposerSupportDialog extends StatefulWidget {
+  final List<dynamic> coursList;
+
+  const _SimpleDeposerSupportDialog({required this.coursList});
+
+  @override
+  State<_SimpleDeposerSupportDialog> createState() => _SimpleDeposerSupportDialogState();
+}
+
+class _SimpleDeposerSupportDialogState extends State<_SimpleDeposerSupportDialog> {
+  final _titreCtrl = TextEditingController();
+  final _descCtrl = TextEditingController();
+
+  int? _coursId;
+  Uint8List? _fichierBytes;
+  String? _fichierNom;
+
+  @override
+  void dispose() {
+    _titreCtrl.dispose();
+    _descCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _choisirFichier() async {
+    try {
+      //  Correction: Utiliser FilePicker.platform.pickFiles
+      final FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png', 'zip'],
+        withData: true,
+      );
+
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.single;
+        setState(() {
+          _fichierBytes = file.bytes;
+          _fichierNom = file.name;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur: $e'), backgroundColor: app.AppColors.red),
+        );
+      }
+    }
+  }
+
+  void _valider() {
+    if (_coursId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Veuillez sélectionner un cours'), backgroundColor: app.AppColors.orange),
+      );
+      return;
+    }
+    if (_titreCtrl.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Veuillez saisir un titre'), backgroundColor: app.AppColors.orange),
+      );
+      return;
+    }
+    if (_fichierBytes == null || _fichierNom == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Veuillez choisir un fichier'), backgroundColor: app.AppColors.orange),
+      );
+      return;
+    }
+
+    Navigator.pop(
+      context,
+      _ResultatDepot(
+        coursId: _coursId!,
+        titre: _titreCtrl.text.trim(),
+        description: _descCtrl.text.trim(),
+        fichierPath: null,
+        fichierBytes: _fichierBytes,
+        fichierNom: _fichierNom!,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: const Text('Déposer un support', style: TextStyle(fontSize: 17)),
+      content: SizedBox(
+        width: MediaQuery.of(context).size.width * 0.9,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            DropdownButtonFormField<int>(
+              isExpanded: true,
+              value: _coursId,
+              decoration: const InputDecoration(
+                labelText: 'Cours *',
+                border: OutlineInputBorder(),
+              ),
+              items: widget.coursList.map((c) {
+                final ecue = c['ecue'] as Map<String, dynamic>? ?? {};
+                return DropdownMenuItem<int>(
+                  value: c['id'] as int,
+                  child: Text(
+                    '${ecue['nom'] ?? 'Cours'} (${c['date_cours'] ?? ''})',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                );
+              }).toList(),
+              onChanged: (v) => setState(() => _coursId = v),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _titreCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Titre *',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _descCtrl,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Description (optionnel)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            ElevatedButton.icon(
+              onPressed: _choisirFichier,
+              icon: const Icon(Icons.attach_file),
+              label: Text(_fichierNom ?? 'Choisir un fichier *'),
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 45),
+              ),
+            ),
+            if (_fichierNom != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Row(
+                  children: [
+                    const Icon(Icons.check_circle, size: 14, color: app.AppColors.green),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        _fichierNom!,
+                        style: const TextStyle(fontSize: 12, color: app.AppColors.green),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Annuler'),
+        ),
+        ElevatedButton(
+          onPressed: _valider,
+          style: ElevatedButton.styleFrom(backgroundColor: app.AppColors.primary),
+          child: const Text('Déposer'),
+        ),
+      ],
+    );
+  }
+}
+
 class _CarteSupport extends StatelessWidget {
   final Map<String, dynamic> support;
   final bool isAdmin;
@@ -488,16 +585,16 @@ class _CarteSupport extends StatelessWidget {
 
   Color get _couleurStatut {
     switch (support['statut']) {
-      case 'valide': return AppColors.green;
-      case 'rejete': return AppColors.red;
-      default: return AppColors.orange;
+      case 'valide': return app.AppColors.green;
+      case 'rejete': return app.AppColors.red;
+      default: return app.AppColors.orange;
     }
   }
 
   String get _labelStatut {
     switch (support['statut']) {
-      case 'valide': return 'Valide';
-      case 'rejete': return 'Rejete';
+      case 'valide': return 'Validé';
+      case 'rejete': return 'Rejeté';
       default: return 'En attente';
     }
   }
@@ -518,9 +615,7 @@ class _CarteSupport extends StatelessWidget {
     final ecue = cours['ecue'] as Map<String, dynamic>? ?? {};
     final enseignant = support['enseignant'] as Map<String, dynamic>? ?? {};
     final taille = support['fichier_taille'] ?? 0;
-    final tailleStr = taille > 1048576
-      ? '${(taille / 1048576).toStringAsFixed(1)} Mo'
-      : '${(taille / 1024).toStringAsFixed(0)} Ko';
+    final tailleStr = taille > 1048576 ? '${(taille / 1048576).toStringAsFixed(1)} Mo' : '${(taille / 1024).toStringAsFixed(0)} Ko';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -550,13 +645,11 @@ class _CarteSupport extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(support['titre'] ?? '', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textMain)),
-                      Text('${ecue['nom'] ?? 'Cours'} • ${support['fichier_nom'] ?? ''}',
-                        style: const TextStyle(fontSize: 12, color: AppColors.textSub), overflow: TextOverflow.ellipsis),
+                      Text(support['titre'] ?? '', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: app.AppColors.textMain)),
+                      Text('${ecue['nom'] ?? 'Cours'} • ${support['fichier_nom'] ?? ''}', style: const TextStyle(fontSize: 12, color: app.AppColors.textSub), overflow: TextOverflow.ellipsis),
                     ],
                   ),
                 ),
-                // Badge statut (visible pour admin et enseignant)
                 if (!isEtudiant)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -569,24 +662,22 @@ class _CarteSupport extends StatelessWidget {
             if (support['description'] != null && (support['description'] as String).isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: Text(support['description'], style: const TextStyle(fontSize: 13, color: AppColors.textSub, height: 1.4)),
+                child: Text(support['description'], style: const TextStyle(fontSize: 13, color: app.AppColors.textSub, height: 1.4)),
               ),
             Row(
               children: [
                 if (!isEtudiant) ...[
-                  const Icon(Icons.person_outline, size: 14, color: AppColors.textSub),
+                  const Icon(Icons.person_outline, size: 14, color: app.AppColors.textSub),
                   const SizedBox(width: 4),
-                  Text(enseignant['full_name'] ?? '', style: const TextStyle(fontSize: 12, color: AppColors.textSub)),
+                  Text(enseignant['full_name'] ?? '', style: const TextStyle(fontSize: 12, color: app.AppColors.textSub)),
                   const Spacer(),
                 ],
-                if (isEtudiant)
-                  const Spacer(),
-                const Icon(Icons.storage, size: 14, color: AppColors.textSub),
+                if (isEtudiant) const Spacer(),
+                const Icon(Icons.storage, size: 14, color: app.AppColors.textSub),
                 const SizedBox(width: 4),
-                Text(tailleStr, style: const TextStyle(fontSize: 12, color: AppColors.textSub)),
+                Text(tailleStr, style: const TextStyle(fontSize: 12, color: app.AppColors.textSub)),
               ],
             ),
-            // Bouton télécharger (pour tout le monde quand le support est validé)
             if (onTelecharger != null)
               Padding(
                 padding: const EdgeInsets.only(top: 10),
@@ -595,35 +686,33 @@ class _CarteSupport extends StatelessWidget {
                   child: OutlinedButton.icon(
                     onPressed: onTelecharger,
                     icon: const Icon(Icons.download, size: 16),
-                    label: const Text('Telecharger'),
+                    label: const Text('Télécharger'),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.primary,
-                      side: const BorderSide(color: AppColors.primary),
+                      foregroundColor: app.AppColors.primary,
+                      side: const BorderSide(color: app.AppColors.primary),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
                   ),
                 ),
               ),
-            // Motif de rejet
             if (support['statut'] == 'rejete' && support['motif_rejet'] != null)
               Container(
                 margin: const EdgeInsets.only(top: 10),
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: AppColors.red.withValues(alpha: 0.05),
+                  color: app.AppColors.red.withValues(alpha: 0.05),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.red.withValues(alpha: 0.2)),
+                  border: Border.all(color: app.AppColors.red.withValues(alpha: 0.2)),
                 ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.info_outline, color: AppColors.red, size: 16),
+                    const Icon(Icons.info_outline, color: app.AppColors.red, size: 16),
                     const SizedBox(width: 6),
-                    Expanded(child: Text(support['motif_rejet'], style: const TextStyle(fontSize: 12, color: AppColors.red))),
+                    Expanded(child: Text(support['motif_rejet'], style: const TextStyle(fontSize: 12, color: app.AppColors.red))),
                   ],
                 ),
               ),
-            // Boutons admin (valider/rejeter)
             if (isAdmin && support['statut'] == 'en_attente')
               Padding(
                 padding: const EdgeInsets.only(top: 12),
@@ -634,8 +723,7 @@ class _CarteSupport extends StatelessWidget {
                         onPressed: onValider,
                         icon: const Icon(Icons.check, size: 16),
                         label: const Text('Valider'),
-                        style: ElevatedButton.styleFrom(backgroundColor: AppColors.green, foregroundColor: Colors.white, elevation: 0,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+                        style: ElevatedButton.styleFrom(backgroundColor: app.AppColors.green, foregroundColor: Colors.white, elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -644,21 +732,19 @@ class _CarteSupport extends StatelessWidget {
                         onPressed: onRejeter,
                         icon: const Icon(Icons.close, size: 16),
                         label: const Text('Rejeter'),
-                        style: OutlinedButton.styleFrom(foregroundColor: AppColors.red, side: const BorderSide(color: AppColors.red),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+                        style: OutlinedButton.styleFrom(foregroundColor: app.AppColors.red, side: const BorderSide(color: app.AppColors.red), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
                       ),
                     ),
                   ],
                 ),
               ),
-            // Bouton supprimer (admin ou enseignant propriétaire)
             if (onSupprimer != null && support['statut'] != 'en_attente')
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton.icon(
                   onPressed: onSupprimer,
-                  icon: const Icon(Icons.delete_outline, size: 16, color: AppColors.red),
-                  label: const Text('Supprimer', style: TextStyle(fontSize: 12, color: AppColors.red)),
+                  icon: const Icon(Icons.delete_outline, size: 16, color: app.AppColors.red),
+                  label: const Text('Supprimer', style: TextStyle(fontSize: 12, color: app.AppColors.red)),
                 ),
               ),
           ],

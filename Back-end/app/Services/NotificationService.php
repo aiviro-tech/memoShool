@@ -2,31 +2,28 @@
 
 namespace App\Services;
 
-use App\Models\FcmToken;
 use App\Models\Notification;
+use App\Models\User;
+use App\Models\FcmToken;
+use Illuminate\Support\Facades\Log;
 
 class NotificationService
 {
-    private FCMService $fcmService;
-
-    public function __construct()
-    {
-        $this->fcmService = new FCMService();
-    }
-
     /**
-     * Envoyer une notification à un utilisateur.
+     * Méthode centrale d'envoi de notification.
+     * Tous les champs correspondent exactement au model et à la migration.
      */
     public function envoyer(
-        int $userId,
+        int    $userId,
         string $titre,
         string $contenu,
         string $type,
-        ?int $ecoleId = null,
-        array $data = []
-    ): Notification {
-        // Sauvegarder en base
-        $notification = Notification::create([
+        int    $ecoleId,
+        array  $data = []
+    ): void {
+        if (trim($contenu) === '') return;
+
+        Notification::create([
             'user_id'  => $userId,
             'ecole_id' => $ecoleId,
             'titre'    => $titre,
@@ -35,138 +32,275 @@ class NotificationService
             'data'     => $data,
             'lu'       => false,
         ]);
-
-        // Envoyer push FCM
-        $tokens = FcmToken::where('user_id', $userId)->pluck('token')->toArray();
-        if (!empty($tokens)) {
-            $this->fcmService->envoyerAPlusieurS($tokens, $titre, $contenu, array_merge(
-                $data,
-                ['type' => $type, 'notification_id' => $notification->id]
-            ));
-        }
-
-        return $notification;
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // NOTES
+    // ─────────────────────────────────────────────────────────────────────
+
     /**
-     * Envoyer une notification à plusieurs utilisateurs.
+     * Notifier un étudiant qu'une note est disponible.
      */
-    public function envoyerAPlusieurS(
-        array $userIds,
-        string $titre,
-        string $contenu,
-        string $type,
-        ?int $ecoleId = null,
-        array $data = []
+    public function notifierNoteDisponible(
+        int    $etudiantId,
+        int    $ecoleId,
+        string $ecueNom,
+        ?float $note,
+        float  $bareme = 20
     ): void {
-        foreach ($userIds as $userId) {
-            $this->envoyer($userId, $titre, $contenu, $type, $ecoleId, $data);
-        }
-    }
+        if ($note === null) return;
 
-    // ─── Méthodes spécifiques par type ───────────────────────────
-
-    /**
-     * Notification : nouveau support validé.
-     */
-    public function notifierSupportValide(int $coursId, int $ecoleId, array $etudiantIds): void
-    {
-        $this->envoyerAPlusieurS(
-            $etudiantIds,
-            'Nouveau support disponible',
-            'Un nouveau support de cours vient d\'être validé.',
-            'support',
-            $ecoleId,
-            ['cours_id' => $coursId]
-        );
-    }
-
-    /**
-     * Notification : nouveau cours programmé ou modifié.
-     */
-    public function notifierCoursProgramme(int $coursId, int $ecoleId, array $userIds, bool $modification = false): void
-    {
-        $titre   = $modification ? 'Emploi du temps modifié' : 'Nouveau cours programmé';
-        $contenu = $modification
-            ? 'Un cours de votre emploi du temps a été modifié.'
-            : 'Un nouveau cours a été ajouté à votre emploi du temps.';
-
-        $this->envoyerAPlusieurS(
-            $userIds,
-            $titre,
-            $contenu,
-            'emploi_du_temps',
-            $ecoleId,
-            ['cours_id' => $coursId]
-        );
-    }
-
-    /**
-     * Notification : note disponible.
-     */
-    public function notifierNoteDisponible(int $etudiantId, int $ecoleId, string $ecueNom, float $note): void
-    {
         $this->envoyer(
             $etudiantId,
-            'Note disponible',
-            "Votre note en {$ecueNom} : {$note}/20",
+            'Nouvelle note disponible',
+            "Votre note en {$ecueNom} est de {$note}/{$bareme}.",
             'note',
             $ecoleId,
-            ['ecue_nom' => $ecueNom, 'note' => $note]
+            ['ecue_nom' => $ecueNom, 'note' => $note, 'bareme' => $bareme]
         );
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // ABSENCES
+    // ─────────────────────────────────────────────────────────────────────
+
     /**
-     * Notification : rappel échéance de paiement.
+     * Notifier un étudiant d'une alerte d'absences (préventive).
      */
-    public function notifierEcheancePaiement(
-        int $etudiantId, 
-        int $ecoleId, 
-        string $dateLimite, 
-        float $soldeRestant,
-        string $echeanceLibelle
+    public function notifierAbsences(
+        int    $etudiantId,
+        int    $ecoleId,
+        string $ecueNom,
+        int    $absences,
+        int    $seuil
     ): void {
-        $this->envoyer(
-            $etudiantId,
-            'Rappel paiement',
-            "{$echeanceLibelle} due le {$dateLimite}. Solde restant : " . number_format($soldeRestant, 0, ',', ' ') . " FCFA.",
-            'paiement',
-            $ecoleId,
-            [
-                'date_limite'      => $dateLimite,
-                'solde_restant'    => $soldeRestant,
-                'echeance_libelle' => $echeanceLibelle,
-            ]
-        );
-    }
-
-    /**
-     * Notification : seuil d'absences approche.
-     */
-    public function notifierAbsences(int $etudiantId, int $ecoleId, string $ecueNom, int $nbAbsences, int $seuil): void
-    {
+        $reste = $seuil - $absences;
         $this->envoyer(
             $etudiantId,
             'Alerte absences',
-            "Vous avez {$nbAbsences} absence(s) en {$ecueNom}. Seuil maximum : {$seuil}.",
+            "Vous avez {$absences} absence(s) en {$ecueNom}. Plus que {$reste} avant exclusion.",
             'absence',
             $ecoleId,
-            ['ecue_nom' => $ecueNom, 'nb_absences' => $nbAbsences, 'seuil' => $seuil]
+            ['ecue_nom' => $ecueNom, 'absences' => $absences, 'seuil' => $seuil]
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // SUPPORTS DE COURS
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Notifier les étudiants d'un cours qu'un support est disponible.
+     */
+    public function notifierSupportValide(
+        int   $coursId,
+        int   $ecoleId,
+        array $etudiantIds
+    ): void {
+        foreach ($etudiantIds as $etudiantId) {
+            $this->envoyer(
+                $etudiantId,
+                'Nouveau support disponible',
+                "Un nouveau support de cours est disponible pour votre cours.",
+                'support',
+                $ecoleId,
+                ['cours_id' => $coursId]
+            );
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // COURS
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Notifier l'enseignant ET les étudiants de la classe qu'un cours a été créé.
+     *
+     * @param int    $enseignantId  ID de l'enseignant assigné
+     * @param int    $ecoleId
+     * @param string $ecueNom       Nom de l'ECUE
+     * @param string $dateCours     Date du cours
+     * @param string $heureDebut
+     * @param string $heureFin
+     * @param array  $etudiantIds   IDs des étudiants de la classe
+     */
+    public function notifierCoursCree(
+        int    $enseignantId,
+        int    $ecoleId,
+        string $ecueNom,
+        string $dateCours,
+        string $heureDebut,
+        string $heureFin,
+        array  $etudiantIds = []
+    ): void {
+        $contenuEnseignant = "Un cours de {$ecueNom} vous a été assigné le {$dateCours} de {$heureDebut} à {$heureFin}.";
+        $contenuEtudiant   = "Un cours de {$ecueNom} est planifié le {$dateCours} de {$heureDebut} à {$heureFin}.";
+        $data = [
+            'ecue_nom'   => $ecueNom,
+            'date_cours' => $dateCours,
+            'heure_debut'=> $heureDebut,
+            'heure_fin'  => $heureFin,
+        ];
+
+        // Notification à l'enseignant
+        $this->envoyer(
+            $enseignantId,
+            'Cours assigné',
+            $contenuEnseignant,
+            'emploi_du_temps',
+            $ecoleId,
+            $data
+        );
+
+        // Notification à chaque étudiant de la classe
+        foreach ($etudiantIds as $etudiantId) {
+            $this->envoyer(
+                $etudiantId,
+                'Nouveau cours planifié',
+                $contenuEtudiant,
+                'emploi_du_temps',
+                $ecoleId,
+                $data
+            );
+        }
+    }
+
+    /**
+     * Notifier pour un cours programmé (création ou modification)
+     * Cette méthode est appelée par CoursController
+     */
+    public function notifierCoursProgramme(
+        int   $coursId,
+        int   $ecoleId,
+        array $userIds,
+        bool  $estModification = false
+    ): void {
+        $cours = \App\Models\Cours::with(['ecue', 'classe'])->find($coursId);
+        if (!$cours) return;
+
+        $titre = $estModification ? 'Cours modifié' : 'Nouveau cours programmé';
+        $message = $estModification
+            ? "Le cours de {$cours->ecue->nom} du {$cours->date_cours} a été modifié."
+            : "Un nouveau cours de {$cours->ecue->nom} est programmé le {$cours->date_cours} de {$cours->heure_debut} à {$cours->heure_fin}.";
+
+        $data = [
+            'cours_id'   => $coursId,
+            'ecue_nom'   => $cours->ecue->nom,
+            'date_cours' => $cours->date_cours->toDateString(),
+            'heure_debut'=> $cours->heure_debut,
+            'heure_fin'  => $cours->heure_fin,
+        ];
+
+        foreach ($userIds as $userId) {
+            $this->envoyer(
+                $userId,
+                $titre,
+                $message,
+                'emploi_du_temps',
+                $ecoleId,
+                $data
+            );
+        }
+    }
+
+    /**
+     * Notifier l'enseignant ET les étudiants d'un changement de statut de cours
+     * (annulé, reporté, etc.).
+     */
+    public function notifierStatutCours(
+        int    $enseignantId,
+        int    $ecoleId,
+        string $ecueNom,
+        string $dateCours,
+        string $statut,
+        array  $etudiantIds = [],
+        string $motif = ''
+    ): void {
+        $libelle = match($statut) {
+            'annule'  => 'annulé',
+            'reporte' => 'reporté',
+            'termine' => 'terminé',
+            default   => $statut,
+        };
+
+        $contenu = "Le cours de {$ecueNom} du {$dateCours} a été {$libelle}.";
+        if ($motif) $contenu .= " Motif : {$motif}";
+
+        $data = ['ecue_nom' => $ecueNom, 'date_cours' => $dateCours, 'statut' => $statut];
+
+        $this->envoyer($enseignantId, "Cours {$libelle}", $contenu, 'emploi_du_temps', $ecoleId, $data);
+
+        foreach ($etudiantIds as $etudiantId) {
+            $this->envoyer($etudiantId, "Cours {$libelle}", $contenu, 'emploi_du_temps', $ecoleId, $data);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // PAIEMENTS
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Notifier l'étudiant que son paiement a été approuvé.
+     */
+    public function notifierPaiementApprouve(
+        int    $etudiantId,
+        int    $ecoleId,
+        float  $montant,
+        string $numeroPaiement = ''
+    ): void {
+        $contenu = "Votre paiement de {$montant} FCFA a été confirmé avec succès.";
+        if ($numeroPaiement) $contenu .= " Référence : {$numeroPaiement}.";
+
+        $this->envoyer(
+            $etudiantId,
+            'Paiement confirmé ✓',
+            $contenu,
+            'paiement',
+            $ecoleId,
+            ['montant' => $montant, 'numero' => $numeroPaiement]
         );
     }
 
     /**
-     * Notification : nouvelle annonce.
+     * Notifier l'étudiant que son paiement a échoué.
      */
-    public function notifierAnnonce(int $annonceId, int $ecoleId, array $userIds, string $titre): void
-    {
-        $this->envoyerAPlusieurS(
-            $userIds,
-            'Nouvelle annonce',
-            $titre,
-            'annonce',
+    public function notifierPaiementEchoue(
+        int   $etudiantId,
+        int   $ecoleId,
+        float $montant
+    ): void {
+        $this->envoyer(
+            $etudiantId,
+            'Paiement échoué',
+            "Votre paiement de {$montant} FCFA n'a pas pu être traité. Veuillez réessayer.",
+            'paiement',
             $ecoleId,
-            ['annonce_id' => $annonceId]
+            ['montant' => $montant]
         );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // ANNONCES
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Notifier les destinataires d'une nouvelle annonce publiée.
+     */
+    public function notifierAnnonce(
+        int    $annonceId,
+        int    $ecoleId,
+        array  $userIds,
+        string $titreAnnonce
+    ): void {
+        foreach ($userIds as $userId) {
+            $this->envoyer(
+                $userId,
+                'Nouvelle annonce',
+                "Une nouvelle annonce a été publiée : {$titreAnnonce}.",
+                'annonce',
+                $ecoleId,
+                ['annonce_id' => $annonceId, 'titre' => $titreAnnonce]
+            );
+        }
     }
 }

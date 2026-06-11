@@ -29,6 +29,14 @@ class Ecole extends Model {
         'statut', 
         'admin_id', 
         'motif_refus',
+        // Nouveaux champs documents
+        'autorisation_fichier',
+        'registre_commerce_fichier',
+        'ifu_fichier',
+        'logo_fichier',
+        'façade_fichier',
+        'piece_identite_fichier',
+        'cachet_fichier',
     ];
 
     public function admin() {

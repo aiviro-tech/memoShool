@@ -76,7 +76,7 @@ class AnnonceController extends Controller
             'titre'        => 'required|string|max:255',
             'contenu'      => 'required|string',
             'cible'        => 'required|in:tous,etudiants,enseignants',
-            'niveau_cible' => 'nullable|in:L1,L2,L3,M1,M2|required_if:cible,etudiants',
+            'niveau_cible' => 'nullable|in:L1,L2,L3,M1,M2',
             'classe_cible' => 'nullable|exists:classes,id',
             'publie'       => 'sometimes|boolean',
         ]);

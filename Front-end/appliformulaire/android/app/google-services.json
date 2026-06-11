@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "19291565143",
+    "project_id": "memoshool",
+    "storage_bucket": "memoshool.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:19291565143:android:46ba31a47ac2b765fc0712",
+        "android_client_info": {
+          "package_name": "com.example.appliformulaire"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAiQr_GQN9kYI2MyLXI8oEdkDG0V09oXek"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

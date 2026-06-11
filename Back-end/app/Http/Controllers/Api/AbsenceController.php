@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Absence;
 use App\Models\Cours;
 use App\Services\AbsenceService;
+use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -13,7 +14,6 @@ class AbsenceController extends Controller
 {
     /**
      * Saisir les présences/absences pour un cours.
-     * Enseignant ou Admin uniquement.
      */
     public function saisirPresences(Request $request, int $ecole_id, int $cours_id): JsonResponse
     {
@@ -21,172 +21,113 @@ class AbsenceController extends Controller
         $cours = Cours::where('ecole_id', $ecole_id)->findOrFail($cours_id);
 
         if (!$user->isAdmin() && !$user->isEnseignant()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Accès refusé.',
-            ], 403);
+            return response()->json(['success' => false, 'message' => 'Accès refusé.'], 403);
         }
 
-        // Un enseignant ne peut saisir que pour ses propres cours
         if ($user->isEnseignant() && $cours->enseignant_id !== $user->id) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Vous ne pouvez saisir les présences que pour vos propres cours.',
-            ], 403);
+            return response()->json(['success' => false, 'message' => 'Vous ne pouvez saisir les présences que pour vos propres cours.'], 403);
         }
 
         $validated = $request->validate([
-            'presences'                => 'required|array|min:1',
-            'presences.*.etudiant_id'  => 'required|exists:users,id',
-            'presences.*.present'      => 'required|boolean',
-            'presences.*.observation'  => 'nullable|string|max:500',
+            'presences'               => 'required|array|min:1',
+            'presences.*.etudiant_id' => 'required|exists:users,id',
+            'presences.*.present'     => 'required|boolean',
+            'presences.*.observation' => 'nullable|string|max:500',
         ]);
 
-        $resultats = [];
+        $resultats           = [];
+        $notificationService = new NotificationService();
+        $absenceService      = new AbsenceService($ecole_id);
+
+        $cours->load('ecue');
 
         foreach ($validated['presences'] as $presence) {
             $absence = Absence::updateOrCreate(
-                [
-                    'cours_id'    => $cours_id,
-                    'etudiant_id' => $presence['etudiant_id'],
-                ],
+                ['cours_id' => $cours_id, 'etudiant_id' => $presence['etudiant_id']],
                 [
                     'ecole_id'           => $ecole_id,
                     'present'            => $presence['present'],
                     'observation'        => $presence['observation'] ?? null,
-                    'justifiee'          => false, // toujours false par défaut
+                    'justifiee'          => false,
                     'type_justification' => null,
                 ]
             );
 
             $resultats[] = $absence;
-        }
 
-        $notificationService = new \App\Services\NotificationService();
-        $absenceService      = new \App\Services\AbsenceService($ecole_id);
-
-        $cours->load('ecue');
-
-        foreach ($validated['presences'] as $presence) {
-            if (!$presence['present']) {
-                $stats    = $absenceService->verifierStatutExclusion(
+            if (!$presence['present'] && $cours->ecue !== null) {
+                $stats = $absenceService->verifierStatutExclusion(
                     $presence['etudiant_id'],
                     $cours->ecue->id,
                     $cours->semestre_id
                 );
 
-                $seuil    = $stats['seuil_ecue'];
-                $absences = $stats['absences_ecue'];
+                $seuilEcue        = $stats['seuil_ecue'];
+                $absencesEcue     = $stats['absences_ecue'];
+                $seuilSemestre    = $stats['seuil_semestre'];
+                $absencesSemestre = $stats['absences_semestre'];
+                $seuilHeures      = $stats['seuil_heures'];
+                $heuresSemestre   = $stats['heures_semestre'];
 
-                // Alerte préventive — 2/3 du seuil
-                if ($absences == ceil($seuil * 2 / 3)) {
-                    $notificationService->notifierAbsences(
-                        $presence['etudiant_id'],
-                        $ecole_id,
-                        $cours->ecue->nom,
-                        $absences,
-                        $seuil
-                    );
+                if ($absencesEcue == ceil($seuilEcue * 2 / 3)) {
+                    $notificationService->notifierAbsences($presence['etudiant_id'], $ecole_id, $cours->ecue->nom, $absencesEcue, $seuilEcue);
                 }
-
-                // Alerte critique — seuil atteint
-                if ($absences >= $seuil) {
-                    $notificationService->envoyer(
-                        $presence['etudiant_id'],
-                        'Exclusion session 1',
-                        "Vous avez atteint le seuil d'absences en {$cours->ecue->nom}. Vous êtes exclu de la session 1.",
-                        'absence',
-                        $ecole_id,
-                        ['ecue_id' => $cours->ecue->id, 'ecue_nom' => $cours->ecue->nom]
-                    );
+                if ($absencesEcue >= $seuilEcue) {
+                    $notificationService->envoyer($presence['etudiant_id'], 'Exclusion session 1', "Vous avez atteint le seuil d'absences en {$cours->ecue->nom}.", 'absence', $ecole_id, ['ecue_id' => $cours->ecue->id]);
+                }
+                if ($absencesSemestre == ceil($seuilSemestre * 2 / 3)) {
+                    $notificationService->envoyer($presence['etudiant_id'], 'Alerte absences semestre', "Vous avez {$absencesSemestre} absences ce semestre. Seuil : {$seuilSemestre}.", 'absence', $ecole_id, []);
+                }
+                if ($absencesSemestre >= $seuilSemestre) {
+                    $notificationService->envoyer($presence['etudiant_id'], 'Exclusion session 1 — Semestre', "Vous avez atteint le seuil d'absences du semestre.", 'absence', $ecole_id, []);
+                }
+                if ($heuresSemestre >= ($seuilHeures * 2 / 3) && $heuresSemestre < $seuilHeures) {
+                    $notificationService->envoyer($presence['etudiant_id'], "Alerte heures d'absence", "Vous avez {$heuresSemestre}h d'absence. Seuil : {$seuilHeures}h.", 'absence', $ecole_id, []);
+                }
+                if ($heuresSemestre >= $seuilHeures) {
+                    $notificationService->envoyer($presence['etudiant_id'], 'Exclusion sessions 1 & 2', "Vous avez dépassé {$seuilHeures}h d'absence.", 'absence', $ecole_id, []);
                 }
             }
         }
 
-        // Seuil 1 — nombre d'absences semestre
-        $seuilSemestre    = $stats['seuil_semestre'];
-        $absencesSemestre = $stats['absences_semestre'];
-
-        // Alerte préventive
-        if ($absencesSemestre == ceil($seuilSemestre * 2 / 3)) {
-            $notificationService->envoyer(
-                $presence['etudiant_id'],
-                'Alerte absences semestre',
-                "Vous avez {$absencesSemestre} absences ce semestre. Seuil maximum : {$seuilSemestre}.",
-                'absence',
-                $ecole_id,
-                ['absences_semestre' => $absencesSemestre, 'seuil_semestre' => $seuilSemestre]
-            );
-        }
-
-        // Seuil atteint → exclusion session 1
-        if ($absencesSemestre >= $seuilSemestre) {
-            $notificationService->envoyer(
-                $presence['etudiant_id'],
-                'Exclusion session 1 — Semestre',
-                "Vous avez atteint le seuil d'absences du semestre. Vous êtes exclu de toutes les épreuves de la session 1.",
-                'absence',
-                $ecole_id,
-                ['absences_semestre' => $absencesSemestre, 'seuil_semestre' => $seuilSemestre]
-            );
-        }
-
-        // Seuil 2 — heures d'absence
-        $seuilHeures    = $stats['seuil_heures'];
-        $heuresSemestre = $stats['heures_semestre'];
-
-        // Alerte préventive heures
-        if ($heuresSemestre >= ($seuilHeures * 2 / 3) && $heuresSemestre < $seuilHeures) {
-            $notificationService->envoyer(
-                $presence['etudiant_id'],
-                'Alerte heures d\'absence',
-                "Vous avez {$heuresSemestre}h d'absence ce semestre. Seuil maximum : {$seuilHeures}h.",
-                'absence',
-                $ecole_id,
-                ['heures_semestre' => $heuresSemestre, 'seuil_heures' => $seuilHeures]
-            );
-        }
-
-        // Seuil atteint → exclusion sessions 1 ET 2
-        if ($heuresSemestre >= $seuilHeures) {
-            $notificationService->envoyer(
-                $presence['etudiant_id'],
-                'Exclusion sessions 1 & 2',
-                "Vous avez dépassé {$seuilHeures}h d'absence. Vous êtes exclu des sessions 1 ET 2.",
-                'absence',
-                $ecole_id,
-                ['heures_semestre' => $heuresSemestre, 'seuil_heures' => $seuilHeures]
-            );
-        }
-        
-        return response()->json([
-            'success' => true,
-            'message' => 'Présences enregistrées avec succès.',
-            'data'    => $resultats,
-        ]);
+        return response()->json(['success' => true, 'message' => 'Présences enregistrées avec succès.', 'data' => $resultats]);
     }
 
     /**
      * Justifier une absence.
-     * Enseignant ou Admin uniquement.
+     *
+     * RÈGLES :
+     * - Admin    → peut justifier n'importe quelle absence de l'école
+     * - Enseignant → peut justifier UNIQUEMENT les absences de SES propres cours
+     *
+     * La justification sera visible par les deux (admin et enseignant du cours)
+     * car la donnée est en base avec justifie_par = id de celui qui a justifié.
      */
     public function justifier(Request $request, int $ecole_id, int $id): JsonResponse
     {
         $user    = $request->user();
-        $absence = Absence::where('ecole_id', $ecole_id)->findOrFail($id);
+        $absence = Absence::where('ecole_id', $ecole_id)
+                          ->with('cours')
+                          ->findOrFail($id);
 
         if (!$user->isAdmin() && !$user->isEnseignant()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Accès refusé.',
-            ], 403);
+            return response()->json(['success' => false, 'message' => 'Accès refusé.'], 403);
+        }
+
+        // CORRECTION : un enseignant ne peut justifier que les absences
+        // des cours qu'il enseigne lui-même
+        if ($user->isEnseignant()) {
+            $cours = $absence->cours;
+            if (!$cours || $cours->enseignant_id !== $user->id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Vous ne pouvez justifier que les absences de vos propres cours.',
+                ], 403);
+            }
         }
 
         if ($absence->present) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Cet étudiant était présent, pas d\'absence à justifier.',
-            ], 422);
+            return response()->json(['success' => false, 'message' => "Cet étudiant était présent, pas d'absence à justifier."], 422);
         }
 
         $validated = $request->validate([
@@ -194,13 +135,10 @@ class AbsenceController extends Controller
             'observation'        => 'nullable|string|max:500',
         ]);
 
-        // Vérifier délai 72h pour justificatif (pas pour permission)
+        // Vérifier délai 72h pour justificatif uniquement
         if ($validated['type_justification'] === 'justificatif') {
             if ($absence->delaiJustificatifDepasse()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Le délai de 72h pour soumettre un justificatif est dépassé.',
-                ], 422);
+                return response()->json(['success' => false, 'message' => 'Le délai de 72h pour soumettre un justificatif est dépassé.'], 422);
             }
         }
 
@@ -212,36 +150,54 @@ class AbsenceController extends Controller
             'observation'        => $validated['observation'] ?? $absence->observation,
         ]);
 
+        // Charger les relations pour la réponse complète
+        $absence->load(['etudiant', 'justifiePar', 'cours.ecue']);
+
         return response()->json([
             'success' => true,
             'message' => 'Absence justifiée avec succès.',
-            'data'    => $absence->fresh(['etudiant', 'justifiePar']),
+            'data'    => $absence,
         ]);
     }
 
     /**
-     * Lister les absences d'un étudiant.
+     * Lister les absences.
+     * - Étudiant : ses propres absences
+     * - Enseignant : absences de ses cours uniquement
+     * - Admin : toutes les absences de l'école
      */
     public function index(Request $request, int $ecole_id): JsonResponse
     {
         $user = $request->user();
 
-        $etudiant_id = $user->isEtudiant()
-            ? $user->id
-            : $request->input('etudiant_id');
-
-        if (!$etudiant_id) {
-            return response()->json([
-                'success' => false,
-                'message' => 'etudiant_id est requis.',
-            ], 422);
-        }
-
-        $query = Absence::with(['cours.ecue.ue', 'justifiePar'])
+        $query = Absence::with(['cours.ecue.ue', 'justifiePar', 'etudiant'])
             ->where('ecole_id', $ecole_id)
-            ->where('etudiant_id', $etudiant_id)
             ->where('present', false);
 
+        if ($user->isEtudiant()) {
+            // Étudiant : uniquement ses propres absences
+            $query->where('etudiant_id', $user->id);
+
+        } elseif ($user->isEnseignant()) {
+            // Enseignant : absences des cours qu'il enseigne
+            $mesCoursIds = Cours::where('ecole_id', $ecole_id)
+                ->where('enseignant_id', $user->id)
+                ->pluck('id');
+            $query->whereIn('cours_id', $mesCoursIds);
+
+            // Filtre optionnel par étudiant
+            if ($request->filled('etudiant_id')) {
+                $query->where('etudiant_id', (int) $request->input('etudiant_id'));
+            }
+
+        } else {
+            // Admin : toutes les absences, filtre optionnel par étudiant
+            if ($request->filled('etudiant_id')) {
+                $query->where('etudiant_id', (int) $request->input('etudiant_id'));
+            }
+        }
+
+        // Filtre commun : justifiée ou non
         if ($request->filled('justifiee')) {
             $query->where('justifiee', $request->boolean('justifiee'));
         }
@@ -268,23 +224,27 @@ class AbsenceController extends Controller
 
         $service = new AbsenceService($ecole_id);
         $statut  = $service->verifierStatutExclusion(
-            $validated['etudiant_id'],
-            $validated['ecue_id'],
-            $validated['semestre_id']
+            (int) $validated['etudiant_id'],
+            (int) $validated['ecue_id'],
+            (int) $validated['semestre_id']
         );
 
-        return response()->json([
-            'success' => true,
-            'data'    => $statut,
-        ]);
+        return response()->json(['success' => true, 'data' => $statut]);
     }
 
     /**
-     * Lister les présences d'un cours.
+     * Lister les présences d'un cours spécifique.
+     * Inclut les étudiants présents ET absents avec leurs infos de justification.
      */
     public function presencesCours(Request $request, int $ecole_id, int $cours_id): JsonResponse
     {
+        $user  = $request->user();
         $cours = Cours::where('ecole_id', $ecole_id)->findOrFail($cours_id);
+
+        // Enseignant : uniquement ses propres cours
+        if ($user->isEnseignant() && $cours->enseignant_id !== $user->id) {
+            return response()->json(['success' => false, 'message' => 'Accès refusé.'], 403);
+        }
 
         $presences = Absence::with(['etudiant', 'justifiePar'])
             ->where('ecole_id', $ecole_id)

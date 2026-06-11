@@ -6,15 +6,16 @@ use App\Http\Controllers\Controller;
 use App\Models\AutorisationSaisieNote;
 use App\Models\Devoir;
 use App\Models\Note;
+use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class NoteController extends Controller
 {
     /**
-     * Lister les devoirs d'une ECUE pour une classe.
+     * Lister les devoirs d'une école.
      * Admin/Enseignant : tous les devoirs
-     * Etudiant : devoirs avec ses notes
+     * Étudiant : devoirs de ses classes
      */
     public function indexDevoirs(Request $request, int $ecole_id): JsonResponse
     {
@@ -53,7 +54,6 @@ class NoteController extends Controller
 
     /**
      * Créer un devoir.
-     * Admin ou Enseignant autorisé uniquement.
      */
     public function storeDevoir(Request $request, int $ecole_id): JsonResponse
     {
@@ -67,19 +67,18 @@ class NoteController extends Controller
         }
 
         $validated = $request->validate([
-            'ecue_id'          => 'required|exists:ecues,id',
-            'classe_id'        => 'required|exists:classes,id',
-            'enseignant_id'    => 'sometimes|exists:users,id',
-            'titre'            => 'required|string|max:255',
-            'type'             => 'required|in:CC,TP,TD,EXAMEN',
-            'session'          => 'required|integer|in:1,2',
-            'bareme'           => 'required|numeric|min:1|max:100',
-            'date_evaluation'  => 'required|date',
-            'duree'            => 'nullable|integer|min:1',
-            'description'      => 'nullable|string',
+            'ecue_id'         => 'required|exists:ecues,id',
+            'classe_id'       => 'required|exists:classes,id',
+            'enseignant_id'   => 'sometimes|exists:users,id',
+            'titre'           => 'required|string|max:255',
+            'type'            => 'required|in:CC,TP,TD,EXAMEN',
+            'session'         => 'required|integer|in:1,2',
+            'bareme'          => 'required|numeric|min:1|max:100',
+            'date_evaluation' => 'required|date',
+            'duree'           => 'nullable|integer|min:1',
+            'description'     => 'nullable|string',
         ]);
 
-        // Vérifier que l'ECUE appartient à l'école
         $ecueAppartientEcole = \App\Models\Ecue::where('id', $validated['ecue_id'])
             ->where('ecole_id', $ecole_id)->exists();
         if (!$ecueAppartientEcole) {
@@ -89,7 +88,6 @@ class NoteController extends Controller
             ], 403);
         }
 
-        // Un enseignant ne peut créer un devoir que pour ses cours
         if ($user->isEnseignant()) {
             $enseigneCetEcue = \App\Models\Cours::where('ecue_id', $validated['ecue_id'])
                 ->where('classe_id', $validated['classe_id'])
@@ -103,7 +101,6 @@ class NoteController extends Controller
             }
         }
 
-        // Un seul EXAMEN par session par ECUE par classe
         if ($validated['type'] === 'EXAMEN') {
             $examenExiste = Devoir::where('ecue_id', $validated['ecue_id'])
                 ->where('classe_id', $validated['classe_id'])
@@ -120,7 +117,7 @@ class NoteController extends Controller
 
         $devoir = Devoir::create([
             ...$validated,
-            'ecole_id'     => $ecole_id,
+            'ecole_id'      => $ecole_id,
             'enseignant_id' => $validated['enseignant_id'] ?? $user->id,
         ]);
 
@@ -135,14 +132,21 @@ class NoteController extends Controller
 
     /**
      * Saisir les notes d'un devoir.
-     * Enseignant autorisé uniquement (middleware note.autorisation).
+     *
+     * CORRECTIONS :
+     * 1. On charge le devoir avec ecue AVANT la boucle (évite N+1 et null ecue)
+     * 2. On passe le barème à notifierNoteDisponible pour affichage correct
+     * 3. On ne notifie pas si l'étudiant est absent (valeur forcée à 0)
      */
     public function saisirNotes(Request $request, int $ecole_id, int $devoir_id): JsonResponse
     {
-        $user   = $request->user();
-        $devoir = Devoir::where('ecole_id', $ecole_id)->findOrFail($devoir_id);
+        $user = $request->user();
 
-        // Vérifier que l'enseignant est membre actif de l'école
+        // Charger le devoir avec son ECUE dès le départ
+        $devoir = Devoir::with('ecue')
+                        ->where('ecole_id', $ecole_id)
+                        ->findOrFail($devoir_id);
+
         if ($user->isEnseignant()) {
             $estMembre = \App\Models\MembreEcole::where('user_id', $user->id)
                 ->where('ecole_id', $ecole_id)
@@ -157,7 +161,6 @@ class NoteController extends Controller
             }
         }
 
-        // Un enseignant ne peut saisir que pour ses devoirs
         if ($user->isEnseignant() && $devoir->enseignant_id !== $user->id) {
             return response()->json([
                 'success' => false,
@@ -166,14 +169,15 @@ class NoteController extends Controller
         }
 
         $validated = $request->validate([
-            'notes'                => 'required|array|min:1',
-            'notes.*.etudiant_id'  => 'required|exists:users,id',
-            'notes.*.valeur'       => 'nullable|numeric|min:0|max:' . $devoir->bareme,
-            'notes.*.absent'       => 'sometimes|boolean',
-            'notes.*.observation'  => 'nullable|string|max:500',
+            'notes'               => 'required|array|min:1',
+            'notes.*.etudiant_id' => 'required|exists:users,id',
+            'notes.*.valeur'      => 'nullable|numeric|min:0|max:' . $devoir->bareme,
+            'notes.*.absent'      => 'sometimes|boolean',
+            'notes.*.observation' => 'nullable|string|max:500',
         ]);
 
-        $resultats = [];
+        $resultats           = [];
+        $notificationService = new NotificationService();
 
         foreach ($validated['notes'] as $noteData) {
             $absent = $noteData['absent'] ?? false;
@@ -185,25 +189,25 @@ class NoteController extends Controller
                 ],
                 [
                     'ecole_id'    => $ecole_id,
-                    'valeur'      => $absent ? 0 : $noteData['valeur'],
+                    'valeur'      => $absent ? 0 : ($noteData['valeur'] ?? null),
                     'absent'      => $absent,
                     'observation' => $noteData['observation'] ?? null,
                 ]
             );
 
             $resultats[] = $note;
-        }
 
-        $notificationService = new \App\Services\NotificationService();
-        $devoir->load('ecue');
-
-        foreach ($resultats as $note) {
-            $notificationService->notifierNoteDisponible(
-                $note->etudiant_id,
-                $ecole_id,
-                $devoir->ecue->nom,
-                $note->valeur
-            );
+            // CORRECTION : on ne notifie que si l'étudiant n'est pas absent
+            // et que la valeur est renseignée. On passe aussi le barème.
+            if (!$absent && isset($noteData['valeur']) && $noteData['valeur'] !== null && $devoir->ecue !== null) {
+                $notificationService->notifierNoteDisponible(
+                    $noteData['etudiant_id'],
+                    $ecole_id,
+                    $devoir->ecue->nom,
+                    (float) $noteData['valeur'],
+                    (float) $devoir->bareme
+                );
+            }
         }
 
         return response()->json([
@@ -214,7 +218,7 @@ class NoteController extends Controller
     }
 
     /**
-     * Consulter les notes d'un étudiant pour une ECUE.
+     * Consulter les notes d'un étudiant.
      */
     public function notesEtudiant(Request $request, int $ecole_id): JsonResponse
     {
@@ -276,11 +280,11 @@ class NoteController extends Controller
                 'ecole_id'      => $ecole_id,
             ],
             [
-                'autorise_par'     => $user->id,
-                'actif'            => true,
+                'autorise_par'      => $user->id,
+                'actif'             => true,
                 'date_autorisation' => now(),
-                'date_expiration'  => $validated['date_expiration'] ?? null,
-                'observation'      => $validated['observation'] ?? null,
+                'date_expiration'   => $validated['date_expiration'] ?? null,
+                'observation'       => $validated['observation'] ?? null,
             ]
         );
 

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:appliformulaire/main.dart';
-import 'package:appliformulaire/dashboard_screen.dart';
+import 'package:appliformulaire/main.dart' as app;
+import 'package:appliformulaire/dashboard_principal.dart';
 import 'package:appliformulaire/services/api_service.dart';
 import 'package:appliformulaire/models/session_utilisateur.dart';
 
@@ -17,7 +17,6 @@ class _EcolesSelectionPageState extends State<EcolesSelectionPage> {
   @override
   void initState() {
     super.initState();
-    // Restaurer le token depuis la session
     final session = SessionUtilisateur();
     if (session.token.isNotEmpty) {
       ApiService.setToken(session.token);
@@ -25,39 +24,45 @@ class _EcolesSelectionPageState extends State<EcolesSelectionPage> {
     _dashboardFuture = ApiService.getDashboardAccueil();
   }
 
+  void _recharger() {
+    setState(() {
+      _dashboardFuture = ApiService.getDashboardAccueil();
+    });
+  }
+
+  //  CORRECTION : déconnexion → app.Connexion (main.dart)
+  Future<void> _seDeconnecter() async {
+    final navigator = Navigator.of(context);
+    // On appelle logout API mais on déconnecte quand même si ça échoue
+    try {
+      await ApiService.logout();
+    } catch (_) {}
+    finally {
+      SessionUtilisateur().vider();
+      if (mounted) {
+        navigator.pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const app.Connexion()),
+          (route) => false,
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: app.AppColors.background,
       appBar: AppBar(
-        title: const Text("Mes écoles"),
-        backgroundColor: AppColors.primary,
+        title: const Text("Mon espace"),
+        backgroundColor: app.AppColors.primary,
         foregroundColor: Colors.white,
         elevation: 0,
+        automaticallyImplyLeading: false,
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: "Se déconnecter",
-            onPressed: () async {
-              try {
-                await ApiService.logout();
-                if (mounted) {
-                  Navigator.pushAndRemoveUntil(
-                    context,
-                    MaterialPageRoute(builder: (_) => const Connexion()),
-                    (route) => false,
-                  );
-                }
-              } catch (e) {
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(e.toString()),
-                    backgroundColor: AppColors.red,
-                  ),
-                );
-              }
-            },
+            onPressed: _seDeconnecter,
           ),
         ],
       ),
@@ -76,7 +81,7 @@ class _EcolesSelectionPageState extends State<EcolesSelectionPage> {
                   const Icon(
                     Icons.error_outline,
                     size: 80,
-                    color: AppColors.red,
+                    color: app.AppColors.red,
                   ),
                   const SizedBox(height: 20),
                   Text(
@@ -85,9 +90,7 @@ class _EcolesSelectionPageState extends State<EcolesSelectionPage> {
                   ),
                   const SizedBox(height: 30),
                   ElevatedButton(
-                    onPressed: () => setState(() {
-                      _dashboardFuture = ApiService.getDashboardAccueil();
-                    }),
+                    onPressed: _recharger,
                     child: const Text("Réessayer"),
                   ),
                 ],
@@ -101,48 +104,42 @@ class _EcolesSelectionPageState extends State<EcolesSelectionPage> {
           final demandesAttente = List.from(data['demandes_en_attente'] ?? []);
           final demandesRejetees = List.from(data['demandes_rejetees'] ?? []);
 
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // En-tête avec accueil
-                Text(
-                  "Bienvenue ${user['nom_complet'] ?? 'Utilisateur'}",
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textMain,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  user['email'] ?? '',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: AppColors.textSub,
-                  ),
-                ),
-                const SizedBox(height: 30),
+          // ── Détecter si l'utilisateur est admin dans au moins une école ──
+          final bool estAdmin = ecolesActives.any(
+            (e) =>
+                (e['role']?.toString().toLowerCase() == 'admin') ||
+                e['is_owner'] == true,
+          );
 
-                // Écoles actives
-                if (ecolesActives.isNotEmpty) ...[
-                  const Text(
-                    "VOS ÉCOLES",
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.textMain,
-                    ),
+          return RefreshIndicator(
+            onRefresh: () async => _recharger(),
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _EnTeteUtilisateur(
+                    nomComplet: user['nom_complet'] ?? 'Utilisateur',
+                    email: user['email'] ?? '',
                   ),
-                  const SizedBox(height: 16),
-                  ...ecolesActives.map(
-                    (ecole) {
-                      final role = (ecole['role'] ?? '').toString().toLowerCase();
+                  const SizedBox(height: 28),
+
+                  // ── VOS ÉCOLES ──────────────────────────────────────────
+                  if (ecolesActives.isNotEmpty) ...[
+                    const _TitreSection(texte: "VOS ÉCOLES"),
+                    const SizedBox(height: 12),
+                    ...ecolesActives.map((ecole) {
+                      final role = (ecole['role'] ?? '')
+                          .toString()
+                          .toLowerCase();
                       final isOwner = ecole['is_owner'] == true;
                       final ecoleId = ecole['ecole_id'] is int
                           ? ecole['ecole_id'] as int
-                          : int.tryParse(ecole['ecole_id']?.toString() ?? '') ?? 0;
+                          : int.tryParse(
+                                ecole['ecole_id']?.toString() ?? '',
+                              ) ??
+                              0;
                       final nomEcole = ecole['nom']?.toString() ?? 'École';
 
                       return _CarteEcole(
@@ -152,146 +149,122 @@ class _EcolesSelectionPageState extends State<EcolesSelectionPage> {
                         ecoleId: ecoleId,
                         isOwner: isOwner,
                         onTap: () {
-                          // Mémoriser l'école dans la session
                           SessionUtilisateur().setEcole(
                             nomEcole,
                             ecoleId,
                             owner: isOwner,
                           );
-
-                          // Admin propriétaire → page de gestion des codes et demandes
-                          if (role == 'admin' && isOwner) {
-                            Navigator.pushNamed(
+                          if (mounted) {
+                            Navigator.push(
                               context,
-                              '/admin-dashboard',
-                              arguments: ecoleId.toString(),
-                            );
-                            return;
-                          }
-
-                          // Tous les autres (admin secondaire, enseignant, étudiant) → dashboard principal
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => DashboardPrincipal(
-                                nomEcole: nomEcole,
+                              MaterialPageRoute(
+                                builder: (_) => DashboardPrincipal(
+                                  nomEcole: nomEcole,
+                                  ecoleId: ecoleId,
+                                  isOwner: isOwner,
+                                ),
                               ),
-                            ),
-                          );
+                            ).then((_) => _recharger());
+                          }
                         },
                       );
-                    },
-                  ),
-                  const SizedBox(height: 30),
-                ] else ...[
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Row(
-                      children: [
-                        Icon(Icons.info_outline, color: Colors.orange),
-                        SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            "Vous n'êtes rattaché à aucune école.",
-                            style: TextStyle(color: Colors.orange),
-                          ),
+                    }),
+                    const SizedBox(height: 28),
+                  ] else ...[
+                    // Aucune école
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.orange.withValues(alpha: 0.3),
                         ),
-                      ],
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.info_outline, color: Colors.orange),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              "Vous n'êtes rattaché à aucune école.\nRejoignez ou créez une école pour commencer.",
+                              style: TextStyle(color: Colors.orange),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 30),
-                ],
+                    const SizedBox(height: 28),
+                  ],
 
-                // Demandes en attente
-                if (demandesAttente.isNotEmpty) ...[
-                  const Text(
-                    "VOS DEMANDES EN ATTENTE",
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.textMain,
+                  // ── DEMANDES EN ATTENTE ─────────────────────────────────
+                  if (demandesAttente.isNotEmpty) ...[
+                    const _TitreSection(texte: "VOS DEMANDES EN ATTENTE"),
+                    const SizedBox(height: 12),
+                    ...demandesAttente.map(
+                      (demande) => _CarteDemande(
+                        nom: demande['nom'] ?? '',
+                        role: demande['role'] ?? '',
+                        statut: "⏳ En attente de validation",
+                        couleur: Colors.orange,
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 28),
+                  ],
+
+                  // ── DEMANDES REJETÉES ───────────────────────────────────
+                  if (demandesRejetees.isNotEmpty) ...[
+                    const _TitreSection(
+                      texte: "VOS DEMANDES REJETÉES",
+                      couleur: app.AppColors.red,
+                    ),
+                    const SizedBox(height: 12),
+                    ...demandesRejetees.map(
+                      (demande) => _CarteDemande(
+                        nom: demande['nom'] ?? '',
+                        role: demande['role'] ?? '',
+                        statut: demande['motif_rejet'] ?? 'Rejeté',
+                        couleur: app.AppColors.red,
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                  ],
+
+                  // ── ACTIONS ─────────────────────────────────────────────
+                  const _TitreSection(texte: "ACTIONS"),
                   const SizedBox(height: 12),
-                  ...demandesAttente.map(
-                    (demande) => _CarteDemande(
-                      nom: demande['nom'] ?? '',
-                      role: demande['role'] ?? '',
-                      statut: 'â³ En attente',
-                      couleur: Colors.orange,
-                    ),
+
+                  // Rejoindre une école — visible pour TOUS
+                  _BoutonAction(
+                    icone: Icons.add_circle_outline,
+                    label: "Rejoindre une école",
+                    description: "Utiliser un code d'invitation",
+                    couleur: app.AppColors.primary,
+                    onTap: () => Navigator.pushNamed(
+                      context,
+                      '/rejoindre-ecole',
+                    ).then((_) => _recharger()),
                   ),
+
+                  // Créer une école — visible uniquement pour les admins
+                  if (estAdmin || ecolesActives.isEmpty) ...[
+                    const SizedBox(height: 12),
+                    _BoutonAction(
+                      icone: Icons.school_outlined,
+                      label: "Créer une école",
+                      description:
+                          "Devenir administrateur d'une nouvelle école",
+                      couleur: app.AppColors.secondary,
+                      onTap: () => Navigator.pushNamed(
+                        context,
+                        '/creer-ecole',
+                      ).then((_) => _recharger()),
+                    ),
+                  ],
+
                   const SizedBox(height: 30),
                 ],
-
-                // Demandes rejetées
-                if (demandesRejetees.isNotEmpty) ...[
-                  const Text(
-                    "VOS DEMANDES REJETÉES",
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.red,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  ...demandesRejetees.map(
-                    (demande) => _CarteDemande(
-                      nom: demande['nom'] ?? '',
-                      role: demande['role'] ?? '',
-                      statut: demande['motif_rejet'] ?? 'Rejeté',
-                      couleur: AppColors.red,
-                    ),
-                  ),
-                  const SizedBox(height: 30),
-                ],
-
-                // Actions
-                const Text(
-                  "ACTIONS",
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textMain,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.pushNamed(context, '/rejoindre-ecole');
-                    },
-                    icon: const Icon(Icons.add_circle_outline),
-                    label: const Text("Rejoindre une nouvelle école"),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.pushNamed(context, '/creer-ecole');
-                    },
-                    icon: const Icon(Icons.school_outlined),
-                    label: const Text("Créer une école"),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.secondary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
           );
         },
@@ -299,6 +272,188 @@ class _EcolesSelectionPageState extends State<EcolesSelectionPage> {
     );
   }
 }
+
+// ─── EN-TÊTE UTILISATEUR ──────────────────────────────────────────────────────
+
+class _EnTeteUtilisateur extends StatelessWidget {
+  final String nomComplet;
+  final String email;
+
+  const _EnTeteUtilisateur({required this.nomComplet, required this.email});
+
+  @override
+  Widget build(BuildContext context) {
+    final initiale = nomComplet.isNotEmpty ? nomComplet[0].toUpperCase() : 'U';
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF1565C0), Color(0xFF1E88E5)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 28,
+            backgroundColor: Colors.white.withValues(alpha: 0.25),
+            child: Text(
+              initiale,
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Bienvenue 👋",
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.white.withValues(alpha: 0.8),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  nomComplet,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  email,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.white.withValues(alpha: 0.7),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── TITRE DE SECTION ─────────────────────────────────────────────────────────
+
+class _TitreSection extends StatelessWidget {
+  final String texte;
+  final Color couleur;
+
+  const _TitreSection({
+    required this.texte,
+    this.couleur = app.AppColors.textMain,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      texte,
+      style: TextStyle(
+        fontSize: 13,
+        fontWeight: FontWeight.bold,
+        color: couleur,
+        letterSpacing: 0.8,
+      ),
+    );
+  }
+}
+
+// ─── BOUTON ACTION ────────────────────────────────────────────────────────────
+
+class _BoutonAction extends StatelessWidget {
+  final IconData icone;
+  final String label;
+  final String description;
+  final Color couleur;
+  final VoidCallback onTap;
+
+  const _BoutonAction({
+    required this.icone,
+    required this.label,
+    required this.description,
+    required this.couleur,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: couleur.withValues(alpha: 0.3)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: couleur.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icone, color: couleur, size: 22),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: couleur,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    description,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: app.AppColors.textSub,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.arrow_forward_ios_rounded,
+              size: 16,
+              color: couleur.withValues(alpha: 0.6),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── CARTE ÉCOLE ──────────────────────────────────────────────────────────────
 
 class _CarteEcole extends StatelessWidget {
   final String nom;
@@ -325,18 +480,21 @@ class _CarteEcole extends StatelessWidget {
 
     switch (role.toLowerCase()) {
       case 'admin':
-        roleLabel = isOwner ? 'Administrateur (Propriétaire)' : 'Administrateur';
-        roleColor = AppColors.primary;
-        roleIcon = isOwner ? Icons.admin_panel_settings : Icons.manage_accounts;
+        roleLabel = isOwner
+            ? 'Administrateur · Propriétaire'
+            : 'Administrateur';
+        roleColor = app.AppColors.primary;
+        roleIcon =
+            isOwner ? Icons.admin_panel_settings : Icons.manage_accounts;
         break;
       case 'enseignant':
         roleLabel = 'Enseignant';
-        roleColor = AppColors.green;
+        roleColor = app.AppColors.green;
         roleIcon = Icons.school;
         break;
       default:
         roleLabel = 'Étudiant';
-        roleColor = AppColors.orange;
+        roleColor = app.AppColors.orange;
         roleIcon = Icons.person;
     }
 
@@ -378,12 +536,12 @@ class _CarteEcole extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.bold,
-                      color: AppColors.textMain,
+                      color: app.AppColors.textMain,
                     ),
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    ville.isNotEmpty ? '$ville • $roleLabel' : roleLabel,
+                    ville.isNotEmpty ? '$ville · $roleLabel' : roleLabel,
                     style: TextStyle(
                       fontSize: 12,
                       color: roleColor,
@@ -393,10 +551,20 @@ class _CarteEcole extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(
-              Icons.arrow_forward_ios,
-              size: 14,
-              color: AppColors.textSub,
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                color: roleColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                "Entrer",
+                style: TextStyle(
+                  fontSize: 13,
+                  color: roleColor,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
           ],
         ),
@@ -405,6 +573,7 @@ class _CarteEcole extends StatelessWidget {
   }
 }
 
+// ─── CARTE DEMANDE ────────────────────────────────────────────────────────────
 
 class _CarteDemande extends StatelessWidget {
   final String nom;
@@ -425,7 +594,7 @@ class _CarteDemande extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: couleur.withValues(alpha: 0.1),
+        color: couleur.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: couleur.withValues(alpha: 0.3)),
       ),
@@ -439,10 +608,13 @@ class _CarteDemande extends StatelessWidget {
               children: [
                 Text(
                   nom,
-                  style: TextStyle(fontWeight: FontWeight.bold, color: couleur),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: couleur,
+                  ),
                 ),
                 Text(
-                  "Rôle: $role • $statut",
+                  "Rôle: $role · $statut",
                   style: TextStyle(
                     fontSize: 12,
                     color: couleur.withValues(alpha: 0.7),

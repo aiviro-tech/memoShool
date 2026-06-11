@@ -16,6 +16,10 @@ class PaiementController extends Controller
 {
     /**
      * Consulter les frais et le solde d'un étudiant.
+     *
+     * CORRECTION : On distingue maintenant le cas "frais non configurés"
+     * du cas "solde = 0". Le champ `frais_configures` est retourné
+     * pour que le frontend puisse afficher le bon message.
      */
     public function fraisEtudiant(Request $request, int $ecole_id): JsonResponse
     {
@@ -32,7 +36,12 @@ class PaiementController extends Controller
             ], 422);
         }
 
-        $inscription = Inscription::with(['classe.filiere', 'classe.typesFrais'])
+        // Charger l'inscription avec classe + filière + typesFrais + écheances
+        $inscription = Inscription::with([
+                'classe.filiere',
+                'classe.typesFrais',
+                'classe.echeances',
+            ])
             ->where('etudiant_id', $etudiant_id)
             ->where('statut', 'validee')
             ->whereHas('classe.filiere', fn($q) => $q->where('ecole_id', $ecole_id))
@@ -46,32 +55,44 @@ class PaiementController extends Controller
             ], 404);
         }
 
-        // Échéances de la classe
-        $echeances = EcheanceClasse::where('classe_id', $inscription->classe_id)
-            ->orderBy('numero')
-            ->get();
+        $typesFrais      = $inscription->classe->typesFrais;
+        $echeances       = $inscription->classe->echeances;
 
-        // Montant total obligatoire
-        $montantTotal = $inscription->classe->typesFrais
-            ->where('obligatoire', true)
-            ->sum('montant');
+        // ── CORRECTION PRINCIPALE ────────────────────────────────────────────
+        // On considère les frais "configurés" si au moins un TypeFrais existe.
+        $fraisConfigures = $typesFrais->isNotEmpty();
 
-        // Montant déjà payé
+        // Montant total : somme des frais obligatoires.
+        // Fallback sur coutScolarite si aucun TypeFrais n'est défini.
+        if ($fraisConfigures) {
+            $montantTotal = $typesFrais->where('obligatoire', true)->sum('montant');
+        } else {
+            $montantTotal = $inscription->classe->coutScolarite ?? 0;
+        }
+
+        // Montant déjà payé (paiements approuvés uniquement)
         $montantPaye = Paiement::where('inscription_id', $inscription->id)
             ->where('statut', 'approved')
             ->sum('montant');
 
-        $soldeRestant = $montantTotal - $montantPaye;
+        $soldeRestant = max(0, $montantTotal - $montantPaye);
+
+        // Scolarité soldée : frais configurés ET tout payé
+        $scolariteSoldee = $fraisConfigures
+            && $montantTotal > 0
+            && $soldeRestant <= 0;
 
         return response()->json([
             'success' => true,
             'data'    => [
-                'inscription'   => $inscription,
-                'types_frais'   => $inscription->classe->typesFrais,
-                'echeances'     => $echeances,
-                'montant_total' => $montantTotal,
-                'montant_paye'  => $montantPaye,
-                'solde_restant' => $soldeRestant,
+                'inscription'      => $inscription,
+                'types_frais'      => $typesFrais,
+                'echeances'        => $echeances,
+                'montant_total'    => (float) $montantTotal,
+                'montant_paye'     => (float) $montantPaye,
+                'solde_restant'    => (float) $soldeRestant,
+                'frais_configures' => $fraisConfigures,   // ← NOUVEAU CHAMP
+                'scolarite_soldee' => $scolariteSoldee,   // ← NOUVEAU CHAMP
             ],
         ]);
     }
@@ -101,21 +122,33 @@ class PaiementController extends Controller
             ], 403);
         }
 
-        // Vérifier que le montant ne dépasse pas le solde restant
-        $montantTotal = $inscription->classe->typesFrais
-            ->where('obligatoire', true)
-            ->sum('montant');
+        // Calcul du solde restant
+        $typesFrais      = $inscription->classe->typesFrais;
+        $fraisConfigures = $typesFrais->isNotEmpty();
+
+        $montantTotal = $fraisConfigures
+            ? $typesFrais->where('obligatoire', true)->sum('montant')
+            : ($inscription->classe->coutScolarite ?? 0);
 
         $montantPaye = Paiement::where('inscription_id', $inscription->id)
             ->where('statut', 'approved')
             ->sum('montant');
 
-        $soldeRestant = $montantTotal - $montantPaye;
+        $soldeRestant = max(0, $montantTotal - $montantPaye);
 
-        if ($validated['montant'] > $soldeRestant) {
+        // Si les frais sont configurés, on ne peut pas dépasser le solde restant
+        if ($fraisConfigures && $soldeRestant > 0 && $validated['montant'] > $soldeRestant) {
             return response()->json([
                 'success' => false,
                 'message' => "Le montant saisi ({$validated['montant']} FCFA) dépasse le solde restant ({$soldeRestant} FCFA).",
+            ], 422);
+        }
+
+        // Si frais configurés et déjà tout payé
+        if ($fraisConfigures && $soldeRestant <= 0 && $montantTotal > 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Votre scolarité est déjà entièrement réglée.',
             ], 422);
         }
 
@@ -161,7 +194,7 @@ class PaiementController extends Controller
     }
 
     /**
-     * Webhook FedaPay.
+     * Webhook FedaPay (sans authentification).
      */
     public function webhook(Request $request): JsonResponse
     {
@@ -300,7 +333,8 @@ class PaiementController extends Controller
     }
 
     /**
-     * Gérer les types de frais (Admin).
+     * Créer un type de frais directement depuis le PaiementController.
+     * (Kept for backward-compat — préférer TypeFraisController::store)
      */
     public function storeFrais(Request $request, int $ecole_id): JsonResponse
     {
@@ -319,6 +353,13 @@ class PaiementController extends Controller
         ]);
 
         $frais = TypeFrais::create($validated);
+
+        // Synchroniser coutScolarite
+        $total = TypeFrais::where('classe_id', $validated['classe_id'])
+            ->where('obligatoire', true)
+            ->sum('montant');
+        \App\Models\Classe::where('id', $validated['classe_id'])
+            ->update(['coutScolarite' => $total]);
 
         return response()->json([
             'success' => true,
@@ -362,5 +403,45 @@ class PaiementController extends Controller
                 'message' => 'Erreur : ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    // ── Admin : liste des paiements de tous les étudiants ────────────────────
+
+    /**
+     * Liste tous les paiements d'une école (Admin).
+     */
+    public function indexAdmin(Request $request, int $ecole_id): JsonResponse
+    {
+        if (!$request->user()->isAdmin()) {
+            return response()->json(['success' => false, 'message' => 'Accès refusé.'], 403);
+        }
+
+        $query = Paiement::with(['etudiant', 'inscription.classe'])
+            ->whereHas('inscription.classe.filiere', fn($q) => $q->where('ecole_id', $ecole_id));
+
+        if ($request->filled('statut')) {
+            $query->where('statut', $request->statut);
+        }
+        if ($request->filled('classe_id')) {
+            $query->whereHas('inscription', fn($q) => $q->where('classe_id', $request->classe_id));
+        }
+
+        $paiements = $query->orderByDesc('created_at')->get();
+
+        return response()->json(['success' => true, 'data' => $paiements]);
+    }
+
+    /**
+     * Solde d'un étudiant spécifique (Admin).
+     */
+    public function soldeEtudiantAdmin(Request $request, int $ecole_id, int $etudiant_id): JsonResponse
+    {
+        if (!$request->user()->isAdmin()) {
+            return response()->json(['success' => false, 'message' => 'Accès refusé.'], 403);
+        }
+
+        // Réutiliser la logique de fraisEtudiant en simulant la requête
+        $request->merge(['etudiant_id' => $etudiant_id]);
+        return $this->fraisEtudiant($request, $ecole_id);
     }
 }

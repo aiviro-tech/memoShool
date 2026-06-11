@@ -20,13 +20,10 @@ class TypeFrais extends Model
         'obligatoire' => 'boolean',
     ];
 
+    // ── Relations ────────────────────────────────────────────────────────────
+
     public function classe()
     {
         return $this->belongsTo(Classe::class);
-    }
-
-    public function echeances()
-    {
-        return $this->belongsToMany(EcheanceClasse::class, 'echeance_types_frais', 'type_frais_id', 'echeance_id');
     }
 }

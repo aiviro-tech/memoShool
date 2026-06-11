@@ -15,6 +15,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'note.autorisation' => \App\Http\Middleware\NoteAutorisationMiddleware::class,
         ]);
+        // Activer CORS pour toutes les requêtes API (requis pour Flutter Web)
+        $middleware->api(prepend: [
+            \Illuminate\Http\Middleware\HandleCors::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

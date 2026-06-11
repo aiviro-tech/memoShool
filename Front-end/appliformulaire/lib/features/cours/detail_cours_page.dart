@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:appliformulaire/main.dart';
+import 'package:appliformulaire/main.dart' as app;
 import 'package:appliformulaire/models/cours_model.dart';
 import 'package:appliformulaire/models/session_utilisateur.dart';
 import 'package:appliformulaire/services/api_service.dart';
@@ -36,47 +36,60 @@ class _DetailCoursPageState extends State<DetailCoursPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: app.AppColors.background,
       appBar: AppBar(
         title: Text(widget.cours.ecue),
-        backgroundColor: AppColors.primary,
+        backgroundColor: app.AppColors.primary,
         foregroundColor: Colors.white,
         elevation: 0,
         actions: [
-          // Admin peut modifier depuis le détail
           if (_role == 'admin')
             IconButton(
               icon: const Icon(Icons.edit_outlined),
               tooltip: 'Modifier',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => FormulaireCoursPage(
-                    ecoleId: widget.ecoleId,
-                    cours: widget.cours,
+              onPressed: () async {
+                // Capturer le contexte avant l'async
+                final navigator = Navigator.of(context);
+                await navigator.push(
+                  MaterialPageRoute(
+                    builder: (_) => FormulaireCoursPage(
+                      ecoleId: widget.ecoleId,
+                      cours: widget.cours,
+                    ),
                   ),
-                ),
-              ).then((_) => setState(() => _charger())),
+                );
+                if (mounted) {
+                  setState(() => _charger());
+                }
+              },
             ),
           if (_role == 'admin')
             IconButton(
               icon: const Icon(Icons.delete_outline),
               tooltip: 'Supprimer',
               onPressed: () async {
+                // Capturer le contexte pour le dialogue
+                final ctx = context;
                 final confirm = await showDialog<bool>(
-                  context: context,
+                  context: ctx,
                   builder: (_) => AlertDialog(
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                     title: const Text('Confirmer la suppression'),
-                    content: Text('Supprimer le cours "${widget.cours.ecue}" ?'),
+                    content: Text(
+                      'Supprimer le cours "${widget.cours.ecue}" ?',
+                    ),
                     actions: [
                       TextButton(
-                        onPressed: () => Navigator.pop(context, false),
+                        onPressed: () => Navigator.pop(ctx, false),
                         child: const Text('Annuler'),
                       ),
                       ElevatedButton(
-                        onPressed: () => Navigator.pop(context, true),
-                        style: ElevatedButton.styleFrom(backgroundColor: AppColors.red),
+                        onPressed: () => Navigator.pop(ctx, true),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: app.AppColors.red,
+                        ),
                         child: const Text('Supprimer'),
                       ),
                     ],
@@ -84,17 +97,28 @@ class _DetailCoursPageState extends State<DetailCoursPage> {
                 );
                 if (confirm == true && mounted) {
                   try {
-                    await ApiService.supprimerCours(widget.ecoleId, widget.cours.id);
+                    await ApiService.supprimerCours(
+                      widget.ecoleId,
+                      widget.cours.id,
+                    );
                     if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Cours supprimé'), backgroundColor: AppColors.green),
+                      final messenger = ScaffoldMessenger.of(context);
+                      messenger.showSnackBar(
+                        const SnackBar(
+                          content: Text('Cours supprimé'),
+                          backgroundColor: app.AppColors.green,
+                        ),
                       );
                       Navigator.pop(context);
                     }
                   } catch (e) {
                     if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text(e.toString()), backgroundColor: AppColors.red),
+                      final messenger = ScaffoldMessenger.of(context);
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Text(e.toString()),
+                          backgroundColor: app.AppColors.red,
+                        ),
                       );
                     }
                   }
@@ -117,13 +141,17 @@ class _DetailCoursPageState extends State<DetailCoursPage> {
                   const Icon(
                     Icons.error_outline,
                     size: 60,
-                    color: AppColors.red,
+                    color: app.AppColors.red,
                   ),
                   const SizedBox(height: 12),
                   const Text('Impossible de charger le détail'),
                   const SizedBox(height: 16),
                   ElevatedButton(
-                    onPressed: () => setState(() => _charger()),
+                    onPressed: () {
+                      if (mounted) {
+                        setState(() => _charger());
+                      }
+                    },
                     child: const Text('Réessayer'),
                   ),
                 ],
@@ -139,11 +167,8 @@ class _DetailCoursPageState extends State<DetailCoursPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // En-tête avec statut
                 _EnteteCours(cours: widget.cours),
                 const SizedBox(height: 20),
-
-                // Informations principales
                 const _SectionTitre(titre: 'Informations'),
                 const SizedBox(height: 10),
                 Container(
@@ -207,8 +232,6 @@ class _DetailCoursPageState extends State<DetailCoursPage> {
                     ],
                   ),
                 ),
-
-                // Notes du cours (si présentes)
                 if (widget.cours.notes != null &&
                     widget.cours.notes!.isNotEmpty) ...[
                   const SizedBox(height: 20),
@@ -227,25 +250,23 @@ class _DetailCoursPageState extends State<DetailCoursPage> {
                     child: Text(
                       widget.cours.notes!,
                       style: const TextStyle(
-                        color: AppColors.textSub,
+                        color: app.AppColors.textSub,
                         fontSize: 14,
                         height: 1.6,
                       ),
                     ),
                   ),
                 ],
-
-                // Motif annulation (si annulé)
                 if (widget.cours.statut == 'annule' &&
                     widget.cours.motifAnnulation != null) ...[
                   const SizedBox(height: 20),
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: AppColors.red.withValues(alpha: 0.05),
+                      color: app.AppColors.red.withValues(alpha: 0.05),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: AppColors.red.withValues(alpha: 0.2),
+                        color: app.AppColors.red.withValues(alpha: 0.2),
                       ),
                     ),
                     child: Row(
@@ -253,7 +274,7 @@ class _DetailCoursPageState extends State<DetailCoursPage> {
                       children: [
                         const Icon(
                           Icons.info_outline,
-                          color: AppColors.red,
+                          color: app.AppColors.red,
                           size: 18,
                         ),
                         const SizedBox(width: 8),
@@ -264,7 +285,7 @@ class _DetailCoursPageState extends State<DetailCoursPage> {
                               const Text(
                                 'Motif d\'annulation',
                                 style: TextStyle(
-                                  color: AppColors.red,
+                                  color: app.AppColors.red,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 13,
                                 ),
@@ -273,7 +294,7 @@ class _DetailCoursPageState extends State<DetailCoursPage> {
                               Text(
                                 widget.cours.motifAnnulation!,
                                 style: const TextStyle(
-                                  color: AppColors.red,
+                                  color: app.AppColors.red,
                                   fontSize: 13,
                                 ),
                               ),
@@ -284,8 +305,6 @@ class _DetailCoursPageState extends State<DetailCoursPage> {
                     ),
                   ),
                 ],
-
-                // Liste des étudiants  admin et enseignant seulement
                 if (_role != 'etudiant' && etudiants.isNotEmpty) ...[
                   const SizedBox(height: 20),
                   Row(
@@ -296,7 +315,7 @@ class _DetailCoursPageState extends State<DetailCoursPage> {
                         '${etudiants.length} étudiant${etudiants.length > 1 ? 's' : ''}',
                         style: const TextStyle(
                           fontSize: 13,
-                          color: AppColors.textSub,
+                          color: app.AppColors.textSub,
                         ),
                       ),
                     ],
@@ -319,13 +338,12 @@ class _DetailCoursPageState extends State<DetailCoursPage> {
                             ListTile(
                               leading: CircleAvatar(
                                 radius: 16,
-                                backgroundColor: AppColors.primary.withValues(
-                                  alpha: 0.1,
-                                ),
+                                backgroundColor: app.AppColors.primary
+                                    .withValues(alpha: 0.1),
                                 child: Text(
                                   (e['full_name'] ?? '?')[0].toUpperCase(),
                                   style: const TextStyle(
-                                    color: AppColors.primary,
+                                    color: app.AppColors.primary,
                                     fontSize: 13,
                                     fontWeight: FontWeight.bold,
                                   ),
@@ -342,7 +360,7 @@ class _DetailCoursPageState extends State<DetailCoursPage> {
                                 e['email'] ?? '',
                                 style: const TextStyle(
                                   fontSize: 12,
-                                  color: AppColors.textSub,
+                                  color: app.AppColors.textSub,
                                 ),
                               ),
                               dense: true,
@@ -360,8 +378,6 @@ class _DetailCoursPageState extends State<DetailCoursPage> {
                     ),
                   ),
                 ],
-
-                // Changer statut  admin seulement
                 if (_role == 'admin' && widget.cours.statut != 'termine') ...[
                   const SizedBox(height: 24),
                   const _SectionTitre(titre: 'Changer le statut'),
@@ -370,10 +386,13 @@ class _DetailCoursPageState extends State<DetailCoursPage> {
                     coursId: widget.cours.id,
                     ecoleId: widget.ecoleId,
                     statutActuel: widget.cours.statut,
-                    onStatutChange: () => Navigator.pop(context),
+                    onStatutChange: () {
+                      if (mounted) {
+                        Navigator.pop(context);
+                      }
+                    },
                   ),
                 ],
-
                 const SizedBox(height: 80),
               ],
             ),
@@ -384,7 +403,6 @@ class _DetailCoursPageState extends State<DetailCoursPage> {
   }
 }
 
-// En-tête avec statut visuel
 class _EnteteCours extends StatelessWidget {
   final CoursModel cours;
   const _EnteteCours({required this.cours});
@@ -395,9 +413,11 @@ class _EnteteCours extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.primary.withValues(alpha: 0.06),
+        color: app.AppColors.primary.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.15)),
+        border: Border.all(
+          color: app.AppColors.primary.withValues(alpha: 0.15),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -407,12 +427,12 @@ class _EnteteCours extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.1),
+                  color: app.AppColors.primary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(
                   Icons.menu_book,
-                  color: AppColors.primary,
+                  color: app.AppColors.primary,
                   size: 22,
                 ),
               ),
@@ -426,14 +446,14 @@ class _EnteteCours extends StatelessWidget {
                       style: const TextStyle(
                         fontSize: 17,
                         fontWeight: FontWeight.bold,
-                        color: AppColors.textMain,
+                        color: app.AppColors.textMain,
                       ),
                     ),
                     Text(
                       '${cours.ecueCode} ${cours.ecueCredits} crédits',
                       style: const TextStyle(
                         fontSize: 12,
-                        color: AppColors.textSub,
+                        color: app.AppColors.textSub,
                       ),
                     ),
                   ],
@@ -455,8 +475,7 @@ class _EnteteCours extends StatelessWidget {
   }
 }
 
-// Boutons de changement de statut
-class _BoutonsStatut extends StatelessWidget {
+class _BoutonsStatut extends StatefulWidget {
   final int coursId;
   final int ecoleId;
   final String statutActuel;
@@ -470,27 +489,31 @@ class _BoutonsStatut extends StatelessWidget {
   });
 
   @override
+  State<_BoutonsStatut> createState() => _BoutonsStatutState();
+}
+
+class _BoutonsStatutState extends State<_BoutonsStatut> {
+  @override
   Widget build(BuildContext context) {
-    // Afficher seulement les statuts disponibles selon le statut actuel
     final statuts = <Map<String, dynamic>>[];
 
-    if (statutActuel == 'planifie') {
+    if (widget.statutActuel == 'planifie') {
       statuts.add({
         'label': 'Confirmer',
         'statut': 'confirme',
-        'couleur': AppColors.green,
+        'couleur': app.AppColors.green,
       });
       statuts.add({
         'label': 'Annuler',
         'statut': 'annule',
-        'couleur': AppColors.red,
+        'couleur': app.AppColors.red,
       });
       statuts.add({
         'label': 'Reporter',
         'statut': 'reporte',
-        'couleur': AppColors.orange,
+        'couleur': app.AppColors.orange,
       });
-    } else if (statutActuel == 'confirme') {
+    } else if (widget.statutActuel == 'confirme') {
       statuts.add({
         'label': 'Terminer',
         'statut': 'termine',
@@ -499,18 +522,18 @@ class _BoutonsStatut extends StatelessWidget {
       statuts.add({
         'label': 'Annuler',
         'statut': 'annule',
-        'couleur': AppColors.red,
+        'couleur': app.AppColors.red,
       });
-    } else if (statutActuel == 'reporte') {
+    } else if (widget.statutActuel == 'reporte') {
       statuts.add({
         'label': 'Replanifier',
         'statut': 'planifie',
-        'couleur': AppColors.primary,
+        'couleur': app.AppColors.primary,
       });
       statuts.add({
         'label': 'Annuler',
         'statut': 'annule',
-        'couleur': AppColors.red,
+        'couleur': app.AppColors.red,
       });
     }
 
@@ -529,7 +552,7 @@ class _BoutonsStatut extends StatelessWidget {
             ),
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           ),
-          onPressed: () => _changerStatut(context, s['statut'] as String),
+          onPressed: () => _changerStatut(s['statut'] as String),
           child: Text(
             s['label'] as String,
             style: const TextStyle(fontSize: 13),
@@ -539,40 +562,47 @@ class _BoutonsStatut extends StatelessWidget {
     );
   }
 
-  void _changerStatut(BuildContext context, String nouveauStatut) async {
-    // Demander le motif si annulation ou report
+  Future<void> _changerStatut(String nouveauStatut) async {
     String? motif;
     if (nouveauStatut == 'annule' || nouveauStatut == 'reporte') {
-      motif = await _demanderMotif(context, nouveauStatut);
-      if (motif == null) return; // annuler par l'utilisateur
+      // Capturer le contexte avant l'async
+      final ctx = context;
+      motif = await _demanderMotif(ctx, nouveauStatut);
+      if (motif == null) return;
     }
 
     try {
       await ApiService.changerStatutCours(
-        ecoleId,
-        coursId,
+        widget.ecoleId,
+        widget.coursId,
         nouveauStatut,
         motifAnnulation: motif,
       );
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) {
+        // Capturer le contexte pour les SnackBar
+        final ctx = context;
+        ScaffoldMessenger.of(ctx).showSnackBar(
           const SnackBar(content: Text('Statut mis à jour avec succès')),
         );
-        onStatutChange();
+        widget.onStatutChange();
       }
     } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString()), backgroundColor: AppColors.red),
+      if (mounted) {
+        final ctx = context;
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          SnackBar(
+            content: Text(e.toString()),
+            backgroundColor: app.AppColors.red,
+          ),
         );
       }
     }
   }
 
-  Future<String?> _demanderMotif(BuildContext context, String statut) async {
+  Future<String?> _demanderMotif(BuildContext ctx, String statut) async {
     final ctrl = TextEditingController();
     return showDialog<String>(
-      context: context,
+      context: ctx,
       builder: (_) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         title: Text(
@@ -595,14 +625,14 @@ class _BoutonsStatut extends StatelessWidget {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(ctx),
             child: const Text(
               'Annuler',
-              style: TextStyle(color: AppColors.textSub),
+              style: TextStyle(color: app.AppColors.textSub),
             ),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(context, ctrl.text.trim()),
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
             child: const Text('Confirmer'),
           ),
         ],
@@ -611,7 +641,6 @@ class _BoutonsStatut extends StatelessWidget {
   }
 }
 
-// Widgets internes
 class _SectionTitre extends StatelessWidget {
   final String titre;
   const _SectionTitre({required this.titre});
@@ -623,7 +652,7 @@ class _SectionTitre extends StatelessWidget {
       style: const TextStyle(
         fontSize: 15,
         fontWeight: FontWeight.bold,
-        color: AppColors.textMain,
+        color: app.AppColors.textMain,
       ),
     );
   }
@@ -645,11 +674,11 @@ class _LigneInfo extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
-          Icon(icone, color: AppColors.primary, size: 18),
+          Icon(icone, color: app.AppColors.primary, size: 18),
           const SizedBox(width: 12),
           Text(
             label,
-            style: const TextStyle(color: AppColors.textSub, fontSize: 13),
+            style: const TextStyle(color: app.AppColors.textSub, fontSize: 13),
           ),
           const Spacer(),
           Flexible(
@@ -659,7 +688,7 @@ class _LigneInfo extends StatelessWidget {
               style: const TextStyle(
                 fontWeight: FontWeight.w600,
                 fontSize: 14,
-                color: AppColors.textMain,
+                color: app.AppColors.textMain,
               ),
             ),
           ),
@@ -710,15 +739,15 @@ class _BadgeStatutLocal extends StatelessWidget {
   Color get _c {
     switch (statut) {
       case 'confirme':
-        return AppColors.green;
+        return app.AppColors.green;
       case 'annule':
-        return AppColors.red;
+        return app.AppColors.red;
       case 'reporte':
-        return AppColors.orange;
+        return app.AppColors.orange;
       case 'termine':
         return Colors.grey;
       default:
-        return AppColors.primary;
+        return app.AppColors.primary;
     }
   }
 
